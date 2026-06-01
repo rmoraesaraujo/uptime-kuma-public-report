@@ -155,6 +155,22 @@ $globalStatus = ((int) ($summary['downGroups'] ?? 0)) > 0 ? 'down' : 'up';
 $currentPeriod = $report['filters']['period'];
 $currentStatus = $report['filters']['status'];
 $currentMonitor = $report['filters']['monitor'];
+$metricSuffix = match ($currentPeriod) {
+    'today' => 'DE HOJE',
+    '7d' => 'DOS ULTIMOS 7 DIAS',
+    '30d' => 'DOS ULTIMOS 30 DIAS',
+    default => 'DO PERIODO',
+};
+$offlineGroup = null;
+foreach ($report['monitorGroups'] as $group) {
+    if ((int) ($group['down'] ?? 0) > 0) {
+        $offlineGroup = $group;
+        break;
+    }
+}
+$offlineHref = $offlineGroup === null
+    ? '/?monitor=all&period=' . rawurlencode($currentPeriod) . '&status=all'
+    : '/?monitor=' . rawurlencode('group:' . $offlineGroup['id']) . '&period=' . rawurlencode($currentPeriod) . '&status=all';
 ?>
 <!doctype html>
 <html lang="pt-BR">
@@ -174,18 +190,18 @@ $currentMonitor = $report['filters']['monitor'];
             <span><?= e($statusText) ?></span>
         </div>
         <div class="hero-counters" aria-label="Resumo dos servidores">
-            <div>
+            <a href="/?monitor=all&period=<?= e($currentPeriod) ?>&status=all">
                 <strong><?= e($summary['totalGroups'] ?? 0) ?></strong>
                 <span>Servidores</span>
-            </div>
-            <div>
+            </a>
+            <a href="/?monitor=all&period=<?= e($currentPeriod) ?>&status=up">
                 <strong><?= e($summary['upGroups'] ?? 0) ?></strong>
                 <span>Online</span>
-            </div>
-            <div>
+            </a>
+            <a href="<?= e($offlineHref) ?>" title="Ver grupo com servidor offline">
                 <strong><?= e($summary['downGroups'] ?? 0) ?></strong>
                 <span>Offline</span>
-            </div>
+            </a>
         </div>
     </header>
 
@@ -250,7 +266,8 @@ $currentMonitor = $report['filters']['monitor'];
             <section class="empty-state">Nenhum monitor corresponde aos filtros atuais.</section>
         <?php else: ?>
             <?php foreach ($report['monitorGroups'] as $group): ?>
-                <section class="monitor-group" aria-labelledby="group-<?= e($group['id']) ?>">
+                <?php $groupTone = abs(crc32((string) $group['id'])) % 6; ?>
+                <section class="monitor-group group-tone-<?= e((string) $groupTone) ?>" aria-labelledby="group-<?= e($group['id']) ?>">
                     <div class="group-heading">
                         <div>
                             <h1 id="group-<?= e($group['id']) ?>"><?= e($group['name']) ?></h1>
@@ -266,12 +283,13 @@ $currentMonitor = $report['filters']['monitor'];
                         <?php foreach ($group['monitors'] as $monitor): ?>
                             <article class="server-card <?= e(status_class($monitor['status'])) ?>">
                                 <div class="card-topline">
+                                    <span class="group-chip"><?= e($monitor['groupName']) ?></span>
                                     <span class="server-avatar"><?= e($monitor['initial']) ?></span>
                                     <div class="server-identity">
+                                        <span>Monitoramento</span>
                                         <h2><?= e($monitor['name']) ?></h2>
                                         <time datetime="<?= e($monitor['lastEventLabel']) ?>"><?= e($monitor['lastEventLabel']) ?></time>
                                     </div>
-                                    <span class="group-chip"><?= e($monitor['groupName']) ?></span>
                                 </div>
 
                                 <div class="card-status <?= e(status_class($monitor['status'])) ?>">
@@ -309,15 +327,15 @@ $currentMonitor = $report['filters']['monitor'];
 
                                 <dl class="card-metrics">
                                     <div>
-                                        <dt>Uptime</dt>
+                                        <dt>Uptime <?= e($metricSuffix) ?></dt>
                                         <dd><?= e($monitor['uptimeSelected']) ?></dd>
                                     </div>
                                     <div>
-                                        <dt>Incidentes</dt>
+                                        <dt>Incidentes <?= e($metricSuffix) ?></dt>
                                         <dd><?= e($monitor['incidentsSelected']) ?></dd>
                                     </div>
                                     <div>
-                                        <dt>Downtime</dt>
+                                        <dt>Tempo off <?= e($metricSuffix) ?></dt>
                                         <dd><?= e($monitor['downtimeSelectedLabel']) ?></dd>
                                     </div>
                                 </dl>
