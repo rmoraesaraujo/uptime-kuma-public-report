@@ -266,8 +266,8 @@ $offlineHref = $offlineGroup === null
             <section class="empty-state">Nenhum monitor corresponde aos filtros atuais.</section>
         <?php else: ?>
             <?php foreach ($report['monitorGroups'] as $group): ?>
-                <?php $groupTone = abs(crc32((string) $group['id'])) % 6; ?>
-                <section class="monitor-group group-tone-<?= e((string) $groupTone) ?>" aria-labelledby="group-<?= e($group['id']) ?>">
+                <?php $groupStateClass = (int) ($group['down'] ?? 0) > 0 ? 'group-alert' : 'group-ok'; ?>
+                <section class="monitor-group <?= e($groupStateClass) ?>" aria-labelledby="group-<?= e($group['id']) ?>">
                     <div class="group-heading">
                         <div>
                             <h1 id="group-<?= e($group['id']) ?>"><?= e($group['name']) ?></h1>

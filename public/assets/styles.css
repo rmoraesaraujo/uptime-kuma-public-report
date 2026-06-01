@@ -1,9 +1,9 @@
 :root {
-    --background: #050914;
-    --background-soft: #080e1b;
-    --surface: #0c1424;
-    --surface-strong: #101b2f;
-    --surface-muted: #162235;
+    --background: #01030a;
+    --background-soft: #050914;
+    --surface: #07101e;
+    --surface-strong: #0b1729;
+    --surface-muted: #111c2d;
     --text: #edf5ff;
     --muted: #8b99ad;
     --muted-strong: #aeb9c9;
@@ -22,6 +22,11 @@
     --group-accent: #25d6a2;
     --group-accent-soft: rgba(37, 214, 162, 0.08);
     --group-accent-border: rgba(37, 214, 162, 0.28);
+    --group-accent-glow: rgba(37, 214, 162, 0.14);
+    --card-accent: #25d6a2;
+    --card-accent-soft: rgba(37, 214, 162, 0.08);
+    --card-accent-border: rgba(37, 214, 162, 0.34);
+    --card-accent-glow: rgba(37, 214, 162, 0.16);
 }
 
 * {
@@ -37,9 +42,9 @@ body {
     margin: 0;
     min-height: 100vh;
     background:
-        linear-gradient(120deg, rgba(108, 168, 255, 0.08), transparent 34%),
-        linear-gradient(240deg, rgba(37, 214, 162, 0.08), transparent 32%),
-        linear-gradient(180deg, #050914 0%, #070b16 100%);
+        radial-gradient(circle at 16% -12%, rgba(37, 214, 162, 0.06), transparent 28%),
+        radial-gradient(circle at 92% 6%, rgba(108, 168, 255, 0.04), transparent 24%),
+        linear-gradient(180deg, #01030a 0%, #030713 48%, #01030a 100%);
     color: var(--text);
     font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     font-size: 16px;
@@ -289,8 +294,11 @@ select {
     border-radius: 10px;
     background:
         radial-gradient(circle at top left, var(--group-accent-soft), transparent 34%),
-        linear-gradient(180deg, rgba(10, 17, 31, 0.88), rgba(6, 11, 22, 0.96));
-    box-shadow: 0 22px 62px rgba(0, 0, 0, 0.26);
+        linear-gradient(180deg, rgba(6, 12, 23, 0.94), rgba(2, 6, 14, 0.98));
+    box-shadow:
+        0 0 0 1px var(--group-accent-border),
+        0 0 34px var(--group-accent-glow),
+        0 22px 72px rgba(0, 0, 0, 0.42);
     padding: 14px;
 }
 
@@ -305,40 +313,18 @@ select {
     content: "";
 }
 
-.group-tone-0 {
+.group-ok {
     --group-accent: #25d6a2;
     --group-accent-soft: rgba(37, 214, 162, 0.09);
     --group-accent-border: rgba(37, 214, 162, 0.30);
+    --group-accent-glow: rgba(37, 214, 162, 0.14);
 }
 
-.group-tone-1 {
-    --group-accent: #6ca8ff;
-    --group-accent-soft: rgba(108, 168, 255, 0.10);
-    --group-accent-border: rgba(108, 168, 255, 0.34);
-}
-
-.group-tone-2 {
-    --group-accent: #e3b12f;
-    --group-accent-soft: rgba(227, 177, 47, 0.10);
-    --group-accent-border: rgba(227, 177, 47, 0.32);
-}
-
-.group-tone-3 {
-    --group-accent: #b58cff;
-    --group-accent-soft: rgba(181, 140, 255, 0.10);
-    --group-accent-border: rgba(181, 140, 255, 0.34);
-}
-
-.group-tone-4 {
-    --group-accent: #ff7a90;
-    --group-accent-soft: rgba(255, 122, 144, 0.10);
-    --group-accent-border: rgba(255, 122, 144, 0.32);
-}
-
-.group-tone-5 {
-    --group-accent: #41d6f2;
-    --group-accent-soft: rgba(65, 214, 242, 0.10);
-    --group-accent-border: rgba(65, 214, 242, 0.32);
+.group-alert {
+    --group-accent: #ef545f;
+    --group-accent-soft: rgba(239, 84, 95, 0.11);
+    --group-accent-border: rgba(239, 84, 95, 0.42);
+    --group-accent-glow: rgba(239, 84, 95, 0.18);
 }
 
 .group-heading {
@@ -380,29 +366,31 @@ select {
 }
 
 .server-card {
+    --card-accent: var(--green);
+    --card-accent-soft: rgba(37, 214, 162, 0.07);
+    --card-accent-border: rgba(37, 214, 162, 0.32);
+    --card-accent-glow: rgba(37, 214, 162, 0.15);
     position: relative;
     display: grid;
     gap: 8px;
     min-height: 204px;
     overflow: hidden;
-    border: 1px solid var(--group-accent-border);
+    border: 1px solid var(--card-accent-border);
     border-radius: 8px;
     background:
-        linear-gradient(145deg, var(--group-accent-soft), transparent 35%),
-        linear-gradient(180deg, rgba(15, 25, 43, 0.95) 0%, rgba(9, 16, 30, 0.98) 100%);
-    box-shadow: var(--shadow);
+        radial-gradient(circle at top, var(--card-accent-soft), transparent 42%),
+        linear-gradient(180deg, rgba(8, 16, 30, 0.96) 0%, rgba(3, 8, 18, 0.99) 100%);
+    box-shadow:
+        0 0 0 1px rgba(255, 255, 255, 0.02),
+        0 0 18px var(--card-accent-glow),
+        inset 0 0 22px rgba(255, 255, 255, 0.018),
+        var(--shadow);
     padding: 13px 13px 13px 15px;
 }
 
 .server-card::before {
-    position: absolute;
-    top: 12px;
-    bottom: 12px;
-    left: 0;
-    width: 3px;
-    border-radius: 0 999px 999px 0;
-    background: rgba(139, 153, 173, 0.45);
-    content: "";
+    display: none;
+    content: none;
 }
 
 .server-card::after {
@@ -412,17 +400,17 @@ select {
     right: 12px;
     height: 2px;
     border-radius: 0 0 999px 999px;
-    background: linear-gradient(90deg, transparent, var(--group-accent), transparent);
+    background: linear-gradient(90deg, transparent, var(--card-accent), transparent);
     content: "";
-    opacity: 0.68;
+    opacity: 0.62;
 }
 
 .server-card.status-up {
+    --card-accent: var(--green);
+    --card-accent-soft: rgba(37, 214, 162, 0.07);
+    --card-accent-border: rgba(37, 214, 162, 0.32);
+    --card-accent-glow: rgba(37, 214, 162, 0.15);
     color: var(--text);
-    border-color: var(--group-accent-border);
-    background:
-        linear-gradient(145deg, var(--group-accent-soft), transparent 35%),
-        linear-gradient(180deg, rgba(15, 25, 43, 0.95) 0%, rgba(9, 16, 30, 0.98) 100%);
 }
 
 .server-card.status-up::before {
@@ -430,12 +418,11 @@ select {
 }
 
 .server-card.status-down {
+    --card-accent: var(--red);
+    --card-accent-soft: rgba(239, 84, 95, 0.10);
+    --card-accent-border: rgba(239, 84, 95, 0.48);
+    --card-accent-glow: rgba(239, 84, 95, 0.22);
     color: var(--text);
-    border-color: rgba(239, 84, 95, 0.42);
-    background:
-        linear-gradient(90deg, rgba(239, 84, 95, 0.08), transparent 22%),
-        linear-gradient(180deg, rgba(15, 25, 43, 0.95) 0%, rgba(9, 16, 30, 0.98) 100%);
-    box-shadow: 0 0 0 1px rgba(239, 84, 95, 0.05), var(--shadow);
 }
 
 .server-card.status-down::before {
@@ -446,11 +433,11 @@ select {
 .server-card.status-pending,
 .server-card.status-maintenance,
 .server-card.status-unknown {
+    --card-accent: var(--amber);
+    --card-accent-soft: rgba(227, 177, 47, 0.08);
+    --card-accent-border: rgba(227, 177, 47, 0.34);
+    --card-accent-glow: rgba(227, 177, 47, 0.14);
     color: var(--text);
-    border-color: var(--border);
-    background:
-        linear-gradient(90deg, rgba(227, 177, 47, 0.07), transparent 22%),
-        linear-gradient(180deg, rgba(15, 25, 43, 0.95) 0%, rgba(9, 16, 30, 0.98) 100%);
 }
 
 .server-card.status-partial::before,
