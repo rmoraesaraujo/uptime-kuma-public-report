@@ -1,0 +1,22 @@
+services:
+  uptime-kuma-public-report:
+    build: .
+    container_name: uptime-kuma-public-report
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8088:8080"
+    environment:
+      DATA_PATH: /kuma-data
+      CACHE_PATH: /tmp/uptime-kuma-public-report-cache
+      CACHE_TTL: "60"
+      APP_TIMEZONE: America/Sao_Paulo
+      DB_TIMEZONE: UTC
+      PUBLIC_TITLE: Relatorio de Incidentes
+      SQLITE_IMMUTABLE: "false"
+    volumes:
+      - /opt/uptime-kuma/data:/kuma-data:ro
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    security_opt:
+      - no-new-privileges:true
