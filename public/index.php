@@ -82,7 +82,7 @@ try {
     $database = $locator->locate($config);
     $cache = new FileCache($config->cachePath);
     $cacheKey = implode('|', [
-        'report-v1',
+        'report-v3',
         $database['path'],
         $config->appTimezone,
         $config->dbTimezone,
@@ -150,8 +150,8 @@ if (request_path() === '/api/stats') {
 }
 
 $summary = $report['summary'];
-$statusText = ((int) $summary['downMonitors']) > 0 ? 'Instabilidade detectada' : 'Todos os sistemas operacionais';
-$globalStatus = ((int) $summary['downMonitors']) > 0 ? 'down' : 'up';
+$statusText = ((int) ($summary['downGroups'] ?? 0)) > 0 ? 'Instabilidade detectada' : 'Todos os sistemas operacionais';
+$globalStatus = ((int) ($summary['downGroups'] ?? 0)) > 0 ? 'down' : 'up';
 $currentPeriod = $report['filters']['period'];
 $currentStatus = $report['filters']['status'];
 $currentMonitor = $report['filters']['monitor'];
@@ -167,7 +167,7 @@ $currentMonitor = $report['filters']['monitor'];
 </head>
 <body class="status-board">
     <header class="status-hero">
-        <p class="hero-subtitle">Monitor de Status dos Servidores</p>
+        <p class="hero-subtitle">Central operacional RB PLAY</p>
         <a class="hero-title" href="/"><?= e($report['title']) ?></a>
         <div class="global-status <?= e(status_class($globalStatus)) ?>">
             <span class="status-dot" aria-hidden="true"></span>
@@ -175,15 +175,15 @@ $currentMonitor = $report['filters']['monitor'];
         </div>
         <div class="hero-counters" aria-label="Resumo dos servidores">
             <div>
-                <strong><?= e($summary['totalMonitors']) ?></strong>
+                <strong><?= e($summary['totalGroups'] ?? 0) ?></strong>
                 <span>Servidores</span>
             </div>
             <div>
-                <strong><?= e($summary['upMonitors'] ?? 0) ?></strong>
+                <strong><?= e($summary['upGroups'] ?? 0) ?></strong>
                 <span>Online</span>
             </div>
             <div>
-                <strong><?= e($summary['downMonitors']) ?></strong>
+                <strong><?= e($summary['downGroups'] ?? 0) ?></strong>
                 <span>Offline</span>
             </div>
         </div>
@@ -193,10 +193,19 @@ $currentMonitor = $report['filters']['monitor'];
         <section class="toolbar" aria-label="Filtros do relatorio">
             <form id="filters" class="filter-form" method="get" action="/">
                 <label>
-                    <span>Monitor</span>
+                    <span>Monitor ou grupo</span>
                     <select name="monitor">
                         <option value="all"<?= selected($currentMonitor, 'all') ?>>Todos os monitores</option>
-                        <?php foreach ($report['monitorGroups'] as $group): ?>
+                        <?php if (($report['availableMonitorGroups'] ?? []) !== []): ?>
+                            <optgroup label="Grupos">
+                                <?php foreach ($report['availableMonitorGroups'] as $group): ?>
+                                    <option value="<?= e($group['value']) ?>"<?= selected($currentMonitor, (string) $group['value']) ?>>
+                                        Grupo: <?= e($group['name']) ?> (<?= e($group['total']) ?>)
+                                    </option>
+                                <?php endforeach; ?>
+                            </optgroup>
+                        <?php endif; ?>
+                        <?php foreach (($report['availableMonitorGroups'] ?? $report['monitorGroups']) as $group): ?>
                             <optgroup label="<?= e($group['name']) ?>">
                                 <?php foreach ($group['monitors'] as $monitor): ?>
                                     <option value="<?= e($monitor['id']) ?>"<?= selected($currentMonitor, (string) $monitor['id']) ?>>
@@ -276,7 +285,7 @@ $currentMonitor = $report['filters']['monitor'];
                                     <div class="history-label">Historico por hora</div>
                                     <div class="history-bars history-hours">
                                         <?php foreach ($monitor['historyHourBars'] as $bar): ?>
-                                            <span class="history-bar <?= e(status_class($bar['status'])) ?>" title="<?= e($bar['title']) ?>"></span>
+                                            <span class="history-bar <?= e(status_class($bar['status'])) ?>" data-tooltip="<?= e($bar['title']) ?>" aria-label="<?= e($bar['title']) ?>"></span>
                                         <?php endforeach; ?>
                                     </div>
                                     <div class="history-axis">
@@ -289,7 +298,7 @@ $currentMonitor = $report['filters']['monitor'];
                                     <div class="history-label">Ultimos 60 minutos</div>
                                     <div class="history-bars history-minutes">
                                         <?php foreach ($monitor['historyMinuteBars'] as $bar): ?>
-                                            <span class="history-bar <?= e(status_class($bar['status'])) ?>" title="<?= e($bar['title']) ?>"></span>
+                                            <span class="history-bar <?= e(status_class($bar['status'])) ?>" data-tooltip="<?= e($bar['title']) ?>" aria-label="<?= e($bar['title']) ?>"></span>
                                         <?php endforeach; ?>
                                     </div>
                                     <div class="history-axis">
@@ -321,7 +330,7 @@ $currentMonitor = $report['filters']['monitor'];
     </main>
 
     <footer class="site-footer">
-        <span>Leitura publica em modo somente leitura. URLs, tokens, senhas e configuracoes internas nao sao exibidos.</span>
+        <span>Monitorado por RB PLAY</span>
         <span>Cache: <?= e($report['meta']['cacheTtl'] ?? 60) ?>s<?= ($report['_cache']['hit'] ?? false) ? ' ativo' : ' renovado' ?></span>
     </footer>
 

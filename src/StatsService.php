@@ -26,8 +26,9 @@ final class StatsService
         $monitors = $this->fetchMonitors($pdo, $schema);
 
         $availableMonitorIds = $this->monitorableIds($monitors);
-        $monitorId = $this->sanitizeMonitorFilter($filters['monitor'], $availableMonitorIds);
-        $monitorScopedIds = $monitorId === null ? $availableMonitorIds : [$monitorId];
+        $availableMonitorGroups = $this->buildAvailableMonitorGroups($monitors, $availableMonitorIds);
+        $monitorScope = $this->resolveMonitorScope($filters['monitor'], $monitors, $availableMonitorIds);
+        $monitorScopedIds = $monitorScope['ids'];
 
         $eventsByMonitor = $this->fetchEventsByMonitor($pdo, $schema, $monitorScopedIds, $ranges['30d']['start']);
         $currentStatuses = $this->currentStatuses($eventsByMonitor, $now);
@@ -39,6 +40,7 @@ final class StatsService
         $selected = $this->computeRange($eventsByMonitor, $visibleMonitorIds, $selectedRange['start'], $selectedRange['end']);
 
         $monitorRows = $this->buildMonitorRows($monitors, $visibleMonitorIds, $currentStatuses, $eventsByMonitor, $selected, $today, $sevenDays, $thirtyDays, $now);
+        $monitorGroups = $this->buildMonitorGroups($monitorRows);
         $recentIncidents = $selected['incidentEvents'];
         usort($recentIncidents, static fn (array $a, array $b): int => strcmp((string) $b['at'], (string) $a['at']));
 
@@ -47,7 +49,7 @@ final class StatsService
             'generatedAt' => $now->format(DateTimeInterface::ATOM),
             'generatedAtLabel' => $now->format('d/m/Y H:i:s'),
             'filters' => [
-                'monitor' => $monitorId === null ? 'all' : (string) $monitorId,
+                'monitor' => $monitorScope['value'],
                 'period' => $filters['period'],
                 'status' => $filters['status'],
             ],
@@ -59,8 +61,11 @@ final class StatsService
             ],
             'summary' => [
                 'totalMonitors' => count($visibleMonitorIds),
+                'totalGroups' => count($monitorGroups),
                 'upMonitors' => count(array_filter($visibleMonitorIds, static fn (int $id): bool => ($currentStatuses[$id] ?? 'unknown') === 'up')),
                 'downMonitors' => count(array_filter($visibleMonitorIds, static fn (int $id): bool => ($currentStatuses[$id] ?? 'unknown') === 'down')),
+                'upGroups' => count(array_filter($monitorGroups, static fn (array $group): bool => (int) $group['down'] === 0)),
+                'downGroups' => count(array_filter($monitorGroups, static fn (array $group): bool => (int) $group['down'] > 0)),
                 'incidentsToday' => $today['incidents'],
                 'incidents7d' => $sevenDays['incidents'],
                 'incidents30d' => $thirtyDays['incidents'],
@@ -72,8 +77,9 @@ final class StatsService
                 'uptimeSelected' => $this->formatPercent($selected['uptimePercent']),
             ],
             'monitors' => array_values(array_filter($monitors, static fn (array $monitor): bool => !($monitor['isGroup'] ?? false))),
+            'availableMonitorGroups' => $availableMonitorGroups,
             'visibleMonitorRows' => $monitorRows,
-            'monitorGroups' => $this->buildMonitorGroups($monitorRows),
+            'monitorGroups' => $monitorGroups,
             'series' => $this->dailySeries($eventsByMonitor, $visibleMonitorIds, $selectedRange['start'], $selectedRange['end']),
             'recentIncidents' => array_slice($recentIncidents, 0, 25),
         ];
@@ -582,6 +588,102 @@ final class StatsService
     }
 
     /**
+     * @param array<int, array{id: int, name: string, active: ?bool, type: ?string, parent: ?int, isGroup: bool}> $monitors
+     * @param list<int> $availableMonitorIds
+     * @return array{value: string, ids: list<int>}
+     */
+    private function resolveMonitorScope(string $value, array $monitors, array $availableMonitorIds): array
+    {
+        $value = trim($value);
+        if ($value === '' || $value === 'all') {
+            return [
+                'value' => 'all',
+                'ids' => $availableMonitorIds,
+            ];
+        }
+
+        if (str_starts_with($value, 'group:')) {
+            $groupValue = substr($value, 6);
+            $ids = [];
+
+            foreach ($availableMonitorIds as $monitorId) {
+                $parent = $monitors[$monitorId]['parent'] ?? null;
+                if ($groupValue === 'ungrouped' && $parent === null) {
+                    $ids[] = $monitorId;
+                    continue;
+                }
+                if ($parent !== null && (string) $parent === $groupValue) {
+                    $ids[] = $monitorId;
+                }
+            }
+
+            if ($ids !== []) {
+                return [
+                    'value' => 'group:' . $groupValue,
+                    'ids' => $ids,
+                ];
+            }
+        }
+
+        $monitorId = (int) $value;
+        if ((string) $monitorId === $value && in_array($monitorId, $availableMonitorIds, true)) {
+            return [
+                'value' => (string) $monitorId,
+                'ids' => [$monitorId],
+            ];
+        }
+
+        return [
+            'value' => 'all',
+            'ids' => $availableMonitorIds,
+        ];
+    }
+
+    /**
+     * @param array<int, array{id: int, name: string, active: ?bool, type: ?string, parent: ?int, isGroup: bool}> $monitors
+     * @param list<int> $availableMonitorIds
+     * @return list<array{id: int|string, value: string, name: string, total: int, monitors: list<array{id: int, name: string}>}>
+     */
+    private function buildAvailableMonitorGroups(array $monitors, array $availableMonitorIds): array
+    {
+        $groups = [];
+
+        foreach ($availableMonitorIds as $monitorId) {
+            $monitor = $monitors[$monitorId] ?? null;
+            if ($monitor === null) {
+                continue;
+            }
+
+            $group = $this->groupForMonitor($monitor, $monitors);
+            $key = (string) $group['id'];
+            if (!isset($groups[$key])) {
+                $groups[$key] = [
+                    'id' => $group['id'],
+                    'value' => 'group:' . $group['id'],
+                    'name' => $group['name'],
+                    'total' => 0,
+                    'monitors' => [],
+                ];
+            }
+
+            $groups[$key]['total']++;
+            $groups[$key]['monitors'][] = [
+                'id' => $monitorId,
+                'name' => $monitor['name'],
+            ];
+        }
+
+        foreach ($groups as &$group) {
+            usort($group['monitors'], static fn (array $a, array $b): int => strcasecmp((string) $a['name'], (string) $b['name']));
+        }
+        unset($group);
+
+        uasort($groups, static fn (array $a, array $b): int => strcasecmp((string) $a['name'], (string) $b['name']));
+
+        return array_values($groups);
+    }
+
+    /**
      * @param array{id: int, name: string, active: ?bool, type: ?string, parent: ?int, isGroup: bool} $monitor
      * @param array<int, array{id: int, name: string, active: ?bool, type: ?string, parent: ?int, isGroup: bool}> $monitors
      * @return array{id: int|string, name: string}
@@ -764,19 +866,6 @@ final class StatsService
             $monitorIds,
             static fn (int $monitorId): bool => ($currentStatuses[$monitorId] ?? 'unknown') === $status
         ));
-    }
-
-    /**
-     * @param list<int> $availableMonitorIds
-     */
-    private function sanitizeMonitorFilter(string $monitor, array $availableMonitorIds): ?int
-    {
-        if ($monitor === 'all' || $monitor === '') {
-            return null;
-        }
-
-        $monitorId = (int) $monitor;
-        return in_array($monitorId, $availableMonitorIds, true) ? $monitorId : null;
     }
 
     private function normalizeStatus(mixed $status): string
