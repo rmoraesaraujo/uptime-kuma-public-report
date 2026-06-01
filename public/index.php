@@ -60,10 +60,12 @@ date_default_timezone_set($config->appTimezone);
 
 $allowedPeriods = ['today', '7d', '30d'];
 $allowedStatuses = ['all', 'up', 'down', 'pending', 'maintenance', 'unknown'];
+$requestedPeriod = (string) ($_GET['period'] ?? '7d');
+$requestedStatus = (string) ($_GET['status'] ?? 'all');
 $filters = [
     'monitor' => trim((string) ($_GET['monitor'] ?? 'all')),
-    'period' => in_array((string) ($_GET['period'] ?? '7d'), $allowedPeriods, true) ? (string) $_GET['period'] : '7d',
-    'status' => in_array((string) ($_GET['status'] ?? 'all'), $allowedStatuses, true) ? (string) $_GET['status'] : 'all',
+    'period' => in_array($requestedPeriod, $allowedPeriods, true) ? $requestedPeriod : '7d',
+    'status' => in_array($requestedStatus, $allowedStatuses, true) ? $requestedStatus : 'all',
 ];
 
 try {
