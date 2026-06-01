@@ -7,7 +7,7 @@ final class SchemaDetector
     /**
      * @return array{
      *     monitorTable: ?string,
-     *     monitorColumns: array{id: ?string, name: ?string, active: ?string},
+     *     monitorColumns: array{id: ?string, name: ?string, active: ?string, type: ?string, parent: ?string},
      *     heartbeatTable: string,
      *     heartbeatColumns: array{id: ?string, monitor_id: string, status: string, time: string},
      *     timeMode: string
@@ -43,6 +43,8 @@ final class SchemaDetector
             'id' => null,
             'name' => null,
             'active' => null,
+            'type' => null,
+            'parent' => null,
         ];
 
         if ($monitor !== null) {
@@ -50,6 +52,8 @@ final class SchemaDetector
                 'id' => $this->findColumn($metadata[$monitor], ['id', 'monitor_id', 'monitorId']),
                 'name' => $this->findColumn($metadata[$monitor], ['name', 'display_name', 'displayName', 'friendly_name', 'title']),
                 'active' => $this->findColumn($metadata[$monitor], ['active', 'enabled', 'is_active', 'isActive']),
+                'type' => $this->findColumn($metadata[$monitor], ['type', 'monitor_type', 'monitorType', 'kind']),
+                'parent' => $this->findColumn($metadata[$monitor], ['parent', 'parent_id', 'parentId', 'group_id', 'groupId']),
             ];
         }
 

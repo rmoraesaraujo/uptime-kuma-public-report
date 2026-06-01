@@ -13,6 +13,7 @@ O painel le o SQLite do Uptime Kuma em modo somente leitura, calcula incidentes 
 - Mostra downtime total por periodo filtrado.
 - Mostra uptime percentual diario, semanal e mensal.
 - Lista incidentes por monitor.
+- Agrupa os cards por grupo de monitor do Uptime Kuma, quando a instalacao usa monitores do tipo `group`.
 - Filtros por monitor, periodo e status atual.
 - Layout responsivo com visual de status page profissional.
 - Nao exibe URLs, tokens, senhas, headers, certificados ou configuracoes internas.

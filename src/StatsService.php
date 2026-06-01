@@ -25,7 +25,7 @@ final class StatsService
         $selectedRange = $ranges[$filters['period']] ?? $ranges['7d'];
         $monitors = $this->fetchMonitors($pdo, $schema);
 
-        $availableMonitorIds = array_keys($monitors);
+        $availableMonitorIds = $this->monitorableIds($monitors);
         $monitorId = $this->sanitizeMonitorFilter($filters['monitor'], $availableMonitorIds);
         $monitorScopedIds = $monitorId === null ? $availableMonitorIds : [$monitorId];
 
@@ -38,7 +38,7 @@ final class StatsService
         $thirtyDays = $this->computeRange($eventsByMonitor, $visibleMonitorIds, $ranges['30d']['start'], $ranges['30d']['end']);
         $selected = $this->computeRange($eventsByMonitor, $visibleMonitorIds, $selectedRange['start'], $selectedRange['end']);
 
-        $monitorRows = $this->buildMonitorRows($monitors, $visibleMonitorIds, $currentStatuses, $selected, $today, $sevenDays, $thirtyDays);
+        $monitorRows = $this->buildMonitorRows($monitors, $visibleMonitorIds, $currentStatuses, $eventsByMonitor, $selected, $today, $sevenDays, $thirtyDays, $now);
         $recentIncidents = $selected['incidentEvents'];
         usort($recentIncidents, static fn (array $a, array $b): int => strcmp((string) $b['at'], (string) $a['at']));
 
@@ -59,6 +59,7 @@ final class StatsService
             ],
             'summary' => [
                 'totalMonitors' => count($visibleMonitorIds),
+                'upMonitors' => count(array_filter($visibleMonitorIds, static fn (int $id): bool => ($currentStatuses[$id] ?? 'unknown') === 'up')),
                 'downMonitors' => count(array_filter($visibleMonitorIds, static fn (int $id): bool => ($currentStatuses[$id] ?? 'unknown') === 'down')),
                 'incidentsToday' => $today['incidents'],
                 'incidents7d' => $sevenDays['incidents'],
@@ -70,8 +71,9 @@ final class StatsService
                 'uptime30d' => $this->formatPercent($thirtyDays['uptimePercent']),
                 'uptimeSelected' => $this->formatPercent($selected['uptimePercent']),
             ],
-            'monitors' => array_values($monitors),
+            'monitors' => array_values(array_filter($monitors, static fn (array $monitor): bool => !($monitor['isGroup'] ?? false))),
             'visibleMonitorRows' => $monitorRows,
+            'monitorGroups' => $this->buildMonitorGroups($monitorRows),
             'series' => $this->dailySeries($eventsByMonitor, $visibleMonitorIds, $selectedRange['start'], $selectedRange['end']),
             'recentIncidents' => array_slice($recentIncidents, 0, 25),
         ];
@@ -105,7 +107,7 @@ final class StatsService
 
     /**
      * @param array<string, mixed> $schema
-     * @return array<int, array{id: int, name: string, active: ?bool}>
+     * @return array<int, array{id: int, name: string, active: ?bool, type: ?string, parent: ?int, isGroup: bool}>
      */
     private function fetchMonitors(PDO $pdo, array $schema): array
     {
@@ -127,6 +129,16 @@ final class StatsService
             } else {
                 $select[] = 'NULL AS active';
             }
+            if (is_string($monitorColumns['type'] ?? null)) {
+                $select[] = $this->quoteIdentifier($monitorColumns['type']) . ' AS monitor_type';
+            } else {
+                $select[] = 'NULL AS monitor_type';
+            }
+            if (is_string($monitorColumns['parent'] ?? null)) {
+                $select[] = $this->quoteIdentifier($monitorColumns['parent']) . ' AS parent_id';
+            } else {
+                $select[] = 'NULL AS parent_id';
+            }
 
             $sql = sprintf(
                 'SELECT %s FROM %s ORDER BY %s COLLATE NOCASE ASC',
@@ -139,10 +151,14 @@ final class StatsService
             $monitors = [];
             foreach ($rows as $row) {
                 $id = (int) $row['id'];
+                $type = $row['monitor_type'] === null ? null : strtolower(trim((string) $row['monitor_type']));
                 $monitors[$id] = [
                     'id' => $id,
                     'name' => trim((string) ($row['name'] ?? '')) !== '' ? trim((string) $row['name']) : 'Monitor #' . $id,
                     'active' => $row['active'] === null ? null : ((int) $row['active'] === 1),
+                    'type' => $type,
+                    'parent' => $row['parent_id'] === null || $row['parent_id'] === '' ? null : (int) $row['parent_id'],
+                    'isGroup' => $type === 'group',
                 ];
             }
 
@@ -168,6 +184,9 @@ final class StatsService
                 'id' => $id,
                 'name' => 'Monitor #' . $id,
                 'active' => null,
+                'type' => null,
+                'parent' => null,
+                'isGroup' => false,
             ];
         }
 
@@ -475,9 +494,10 @@ final class StatsService
     }
 
     /**
-     * @param array<int, array{id: int, name: string, active: ?bool}> $monitors
+     * @param array<int, array{id: int, name: string, active: ?bool, type: ?string, parent: ?int, isGroup: bool}> $monitors
      * @param list<int> $visibleMonitorIds
      * @param array<int, string> $currentStatuses
+     * @param array<int, list<array{monitor_id: int, status: mixed, statusKey: string, at: DateTimeImmutable}>> $eventsByMonitor
      * @param array<string, mixed> $selected
      * @param array<string, mixed> $today
      * @param array<string, mixed> $sevenDays
@@ -488,10 +508,12 @@ final class StatsService
         array $monitors,
         array $visibleMonitorIds,
         array $currentStatuses,
+        array $eventsByMonitor,
         array $selected,
         array $today,
         array $sevenDays,
-        array $thirtyDays
+        array $thirtyDays,
+        DateTimeImmutable $now
     ): array {
         $rows = [];
 
@@ -500,6 +522,9 @@ final class StatsService
                 'id' => $monitorId,
                 'name' => 'Monitor #' . $monitorId,
                 'active' => null,
+                'type' => null,
+                'parent' => null,
+                'isGroup' => false,
             ];
 
             $selectedMonitor = $selected['perMonitor'][$monitorId] ?? [
@@ -507,13 +532,23 @@ final class StatsService
                 'downtimeSeconds' => 0,
                 'uptimePercent' => null,
             ];
+            $status = $currentStatuses[$monitorId] ?? 'unknown';
+            $events = $eventsByMonitor[$monitorId] ?? [];
+            $lastEvent = $events === [] ? null : $events[array_key_last($events)];
+            $group = $this->groupForMonitor($monitor, $monitors);
 
             $rows[] = [
                 'id' => $monitorId,
                 'name' => $monitor['name'],
+                'initial' => $this->monitorInitial($monitor['name']),
                 'active' => $monitor['active'],
-                'status' => $currentStatuses[$monitorId] ?? 'unknown',
-                'statusLabel' => $this->statusLabel($currentStatuses[$monitorId] ?? 'unknown'),
+                'type' => $monitor['type'],
+                'groupId' => $group['id'],
+                'groupName' => $group['name'],
+                'status' => $status,
+                'statusLabel' => $this->statusLabel($status),
+                'cardStatusLabel' => $this->cardStatusLabel($status),
+                'lastEventLabel' => $lastEvent === null ? $now->format('Y-m-d H:i:s') : $lastEvent['at']->format('Y-m-d H:i:s'),
                 'incidentsSelected' => $selectedMonitor['incidents'],
                 'incidentsToday' => $today['perMonitor'][$monitorId]['incidents'] ?? 0,
                 'incidents7d' => $sevenDays['perMonitor'][$monitorId]['incidents'] ?? 0,
@@ -521,14 +556,139 @@ final class StatsService
                 'downtimeSelectedSeconds' => $selectedMonitor['downtimeSeconds'],
                 'downtimeSelectedLabel' => $this->formatDuration((int) $selectedMonitor['downtimeSeconds']),
                 'uptimeSelected' => $this->formatPercent($selectedMonitor['uptimePercent']),
+                'historyHourBars' => $this->statusBuckets($eventsByMonitor, $monitorId, $now->modify('-24 hours'), $now, 28),
+                'historyMinuteBars' => $this->statusBuckets($eventsByMonitor, $monitorId, $now->modify('-60 minutes'), $now, 60),
             ];
         }
 
         usort($rows, static function (array $a, array $b): int {
-            return [$b['incidentsSelected'], $b['downtimeSelectedSeconds'], $a['name']] <=> [$a['incidentsSelected'], $a['downtimeSelectedSeconds'], $b['name']];
+            return [$a['groupName'], $b['incidentsSelected'], $b['downtimeSelectedSeconds'], $a['name']]
+                <=> [$b['groupName'], $a['incidentsSelected'], $a['downtimeSelectedSeconds'], $b['name']];
         });
 
         return $rows;
+    }
+
+    /**
+     * @param array<int, array{id: int, name: string, active: ?bool, type: ?string, parent: ?int, isGroup: bool}> $monitors
+     * @return list<int>
+     */
+    private function monitorableIds(array $monitors): array
+    {
+        return array_values(array_map(
+            static fn (array $monitor): int => (int) $monitor['id'],
+            array_filter($monitors, static fn (array $monitor): bool => !($monitor['isGroup'] ?? false))
+        ));
+    }
+
+    /**
+     * @param array{id: int, name: string, active: ?bool, type: ?string, parent: ?int, isGroup: bool} $monitor
+     * @param array<int, array{id: int, name: string, active: ?bool, type: ?string, parent: ?int, isGroup: bool}> $monitors
+     * @return array{id: int|string, name: string}
+     */
+    private function groupForMonitor(array $monitor, array $monitors): array
+    {
+        $parentId = $monitor['parent'];
+        if ($parentId !== null && isset($monitors[$parentId])) {
+            return [
+                'id' => $parentId,
+                'name' => $monitors[$parentId]['name'],
+            ];
+        }
+
+        return [
+            'id' => 'ungrouped',
+            'name' => 'Sem grupo',
+        ];
+    }
+
+    /**
+     * @param list<array<string, mixed>> $rows
+     * @return list<array{id: int|string, name: string, total: int, online: int, down: int, monitors: list<array<string, mixed>>}>
+     */
+    private function buildMonitorGroups(array $rows): array
+    {
+        $groups = [];
+
+        foreach ($rows as $row) {
+            $groupId = $row['groupId'];
+            $key = (string) $groupId;
+
+            if (!isset($groups[$key])) {
+                $groups[$key] = [
+                    'id' => $groupId,
+                    'name' => (string) $row['groupName'],
+                    'total' => 0,
+                    'online' => 0,
+                    'down' => 0,
+                    'monitors' => [],
+                ];
+            }
+
+            $groups[$key]['total']++;
+            if ($row['status'] === 'up') {
+                $groups[$key]['online']++;
+            }
+            if ($row['status'] === 'down') {
+                $groups[$key]['down']++;
+            }
+            $groups[$key]['monitors'][] = $row;
+        }
+
+        uasort($groups, static fn (array $a, array $b): int => strcasecmp((string) $a['name'], (string) $b['name']));
+
+        return array_values($groups);
+    }
+
+    /**
+     * @param array<int, list<array{monitor_id: int, status: mixed, statusKey: string, at: DateTimeImmutable}>> $eventsByMonitor
+     * @return list<array{status: string, label: string, title: string}>
+     */
+    private function statusBuckets(array $eventsByMonitor, int $monitorId, DateTimeImmutable $start, DateTimeImmutable $end, int $bucketCount): array
+    {
+        $duration = max(1, $end->getTimestamp() - $start->getTimestamp());
+        $bucketSeconds = max(1, (int) ceil($duration / $bucketCount));
+        $bars = [];
+
+        for ($index = 0; $index < $bucketCount; $index++) {
+            $bucketStart = $start->modify('+' . ($index * $bucketSeconds) . ' seconds');
+            $bucketEnd = $index === $bucketCount - 1 ? $end : $start->modify('+' . (($index + 1) * $bucketSeconds) . ' seconds');
+            if ($bucketStart >= $end) {
+                break;
+            }
+            if ($bucketEnd > $end) {
+                $bucketEnd = $end;
+            }
+
+            $computed = $this->computeRange($eventsByMonitor, [$monitorId], $bucketStart, $bucketEnd);
+            $status = 'unknown';
+            if ($computed['uptimePercent'] !== null) {
+                if ($computed['downtimeSeconds'] <= 0) {
+                    $status = 'up';
+                } elseif ($computed['uptimePercent'] <= 0.01) {
+                    $status = 'down';
+                } else {
+                    $status = 'partial';
+                }
+            }
+
+            $bars[] = [
+                'status' => $status,
+                'label' => $bucketStart->format('H:i'),
+                'title' => $bucketStart->format('H:i') . ' - ' . $this->statusLabel($status),
+            ];
+        }
+
+        return $bars;
+    }
+
+    private function monitorInitial(string $name): string
+    {
+        if (preg_match('/[A-Za-z0-9]/', $name, $matches) === 1) {
+            return strtoupper($matches[0]);
+        }
+
+        return '#';
     }
 
     /**
@@ -646,9 +806,21 @@ final class StatsService
         return match ($status) {
             'up' => 'UP',
             'down' => 'DOWN',
+            'partial' => 'Parcial',
             'pending' => 'Pendente',
             'maintenance' => 'Manutencao',
             default => 'Desconhecido',
+        };
+    }
+
+    private function cardStatusLabel(string $status): string
+    {
+        return match ($status) {
+            'up' => 'Servidor operacional',
+            'down' => 'Servidor indisponivel',
+            'pending' => 'Servidor pendente',
+            'maintenance' => 'Em manutencao',
+            default => 'Sem leitura recente',
         };
     }
 
