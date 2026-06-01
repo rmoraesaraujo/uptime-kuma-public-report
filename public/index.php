@@ -56,6 +56,14 @@ function request_path(): string
     return parse_url((string) ($_SERVER['REQUEST_URI'] ?? '/'), PHP_URL_PATH) ?: '/';
 }
 
+function asset_url(string $path): string
+{
+    $file = __DIR__ . $path;
+    $version = is_file($file) ? (string) filemtime($file) : '1';
+
+    return $path . '?v=' . rawurlencode($version);
+}
+
 $config = Config::fromEnvironment();
 date_default_timezone_set($config->appTimezone);
 
@@ -116,7 +124,7 @@ try {
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <title><?= e($publicTitle) ?></title>
-        <link rel="stylesheet" href="/assets/styles.css">
+        <link rel="stylesheet" href="<?= e(asset_url('/assets/styles.css')) ?>">
     </head>
     <body>
         <main class="error-shell">
@@ -155,7 +163,7 @@ $currentMonitor = $report['filters']['monitor'];
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title><?= e($report['title']) ?></title>
     <meta name="robots" content="index,follow">
-    <link rel="stylesheet" href="/assets/styles.css">
+    <link rel="stylesheet" href="<?= e(asset_url('/assets/styles.css')) ?>">
 </head>
 <body class="status-board">
     <header class="status-hero">
@@ -317,6 +325,6 @@ $currentMonitor = $report['filters']['monitor'];
         <span>Cache: <?= e($report['meta']['cacheTtl'] ?? 60) ?>s<?= ($report['_cache']['hit'] ?? false) ? ' ativo' : ' renovado' ?></span>
     </footer>
 
-    <script src="/assets/app.js" defer></script>
+    <script src="<?= e(asset_url('/assets/app.js')) ?>" defer></script>
 </body>
 </html>
