@@ -321,12 +321,16 @@ $offlineHref = $offlineGroup === null
                 <h2>Incidentes recentes</h2>
                 <span class="hint"><?= e(count($report['recentIncidents'] ?? [])) ?> registrado(s) no periodo</span>
             </div>
-            <div class="incident-list">
+            <?php
+                $incidentVisibleCount = 6;
+                $incidentTotal = count($report['recentIncidents'] ?? []);
+            ?>
+            <div class="incident-list" id="incident-list" data-visible-count="<?= e($incidentVisibleCount) ?>">
                 <?php if (($report['recentIncidents'] ?? []) === []): ?>
                     <div class="incident-empty">Nenhum incidente registrado no periodo selecionado.</div>
                 <?php else: ?>
-                    <?php foreach ($report['recentIncidents'] as $incident): ?>
-                        <div class="incident-row<?= $incident['ongoing'] ? ' is-ongoing' : '' ?>">
+                    <?php foreach ($report['recentIncidents'] as $index => $incident): ?>
+                        <div class="incident-row<?= $incident['ongoing'] ? ' is-ongoing' : '' ?><?= $index >= $incidentVisibleCount ? ' is-extra' : '' ?>">
                             <span class="incident-monitor"><?= e($incident['monitorName']) ?></span>
                             <span class="incident-times">
                                 <span class="incident-time-item down">
@@ -347,6 +351,11 @@ $offlineHref = $offlineGroup === null
                     <?php endforeach; ?>
                 <?php endif; ?>
             </div>
+            <?php if ($incidentTotal > $incidentVisibleCount): ?>
+                <button type="button" class="toggle-list" data-target="incident-list" data-count="<?= e($incidentTotal - $incidentVisibleCount) ?>">
+                    Mostrar mais <?= e($incidentTotal - $incidentVisibleCount) ?> incidente(s)
+                </button>
+            <?php endif; ?>
         </section>
 
         <section class="section">
@@ -359,18 +368,22 @@ $offlineHref = $offlineGroup === null
                 <div class="empty-state">Nenhum monitor corresponde aos filtros atuais.</div>
             <?php else: ?>
                 <?php foreach ($report['monitorGroups'] as $group): ?>
-                    <?php $groupStateClass = (int) ($group['down'] ?? 0) > 0 ? 'group-alert' : 'group-ok'; ?>
-                    <section class="monitor-group <?= e($groupStateClass) ?>" aria-labelledby="group-<?= e($group['id']) ?>">
-                        <div class="group-heading">
+                    <?php
+                        $groupHasAlert = (int) ($group['down'] ?? 0) > 0;
+                        $groupStateClass = $groupHasAlert ? 'group-alert' : 'group-ok';
+                    ?>
+                    <details class="monitor-group <?= e($groupStateClass) ?>"<?= $groupHasAlert ? ' open' : '' ?>>
+                        <summary class="group-heading" id="group-<?= e($group['id']) ?>">
+                            <span class="group-chevron" aria-hidden="true"></span>
                             <div class="group-heading-text">
-                                <h3 id="group-<?= e($group['id']) ?>"><?= e($group['name']) ?></h3>
+                                <h3><?= e($group['name']) ?></h3>
                                 <span class="count"><?= e($group['total']) ?> monitor(es), <?= e($group['online']) ?> online</span>
                             </div>
                             <span class="pill <?= e($group['down'] > 0 ? 'status-down' : 'status-up') ?>">
                                 <span class="dot" aria-hidden="true"></span>
                                 <?= e($group['down'] > 0 ? $group['down'] . ' em alerta' : 'Operacional') ?>
                             </span>
-                        </div>
+                        </summary>
 
                         <div class="monitor-card-grid">
                             <?php foreach ($group['monitors'] as $monitor): ?>
@@ -412,7 +425,7 @@ $offlineHref = $offlineGroup === null
                                 </article>
                             <?php endforeach; ?>
                         </div>
-                    </section>
+                    </details>
                 <?php endforeach; ?>
             <?php endif; ?>
         </section>

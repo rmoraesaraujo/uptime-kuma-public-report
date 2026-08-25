@@ -1,3 +1,19 @@
+document.querySelectorAll(".toggle-list").forEach((button) => {
+    const targetId = button.getAttribute("data-target");
+    const target = targetId ? document.getElementById(targetId) : null;
+    const expandLabel = button.textContent.trim();
+    const collapseLabel = "Mostrar menos";
+
+    if (!target) {
+        return;
+    }
+
+    button.addEventListener("click", () => {
+        const expanded = target.classList.toggle("is-expanded");
+        button.textContent = expanded ? collapseLabel : expandLabel;
+    });
+});
+
 const filterForm = document.querySelector("#filters");
 
 if (filterForm) {
