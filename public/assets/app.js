@@ -8,7 +8,7 @@ if (filterForm) {
     });
 }
 
-const tooltipTargets = document.querySelectorAll(".history-bar[data-tooltip]");
+const tooltipTargets = document.querySelectorAll(".history-bar[data-tooltip], .chart-bar[data-tooltip]");
 
 if (tooltipTargets.length > 0) {
     const tooltip = document.createElement("div");
