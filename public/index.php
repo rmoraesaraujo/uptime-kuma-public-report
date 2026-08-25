@@ -31,6 +31,11 @@ function status_class(string $status): string
     };
 }
 
+function metric_tone(int $incidents, int $downtimeSeconds): string
+{
+    return ($incidents > 0 || $downtimeSeconds > 0) ? 'metric-bad' : 'metric-good';
+}
+
 function chart_level(?float $percent): string
 {
     if ($percent === null) {
@@ -167,19 +172,6 @@ $offlineHref = $offlineGroup === null
     ? '/?monitor=all&period=' . rawurlencode($currentPeriod) . '&status=all'
     : '/?monitor=' . rawurlencode('group:' . $offlineGroup['id']) . '&period=' . rawurlencode($currentPeriod) . '&status=all';
 
-$monitorNames = [];
-foreach ($report['monitors'] as $monitor) {
-    $monitorNames[(int) $monitor['id']] = $monitor['name'];
-}
-
-$statusLabels = [
-    'up' => 'Ficou online',
-    'down' => 'Ficou offline',
-    'partial' => 'Instavel',
-    'pending' => 'Pendente',
-    'maintenance' => 'Em manutencao',
-    'unknown' => 'Status desconhecido',
-];
 ?>
 <!doctype html>
 <html lang="pt-BR">
@@ -334,13 +326,22 @@ $statusLabels = [
                     <div class="incident-empty">Nenhum incidente registrado no periodo selecionado.</div>
                 <?php else: ?>
                     <?php foreach ($report['recentIncidents'] as $incident): ?>
-                        <?php $monitorName = $monitorNames[(int) $incident['monitorId']] ?? ('Monitor #' . $incident['monitorId']); ?>
-                        <div class="incident-row">
-                            <span class="incident-time"><?= e($incident['atLabel']) ?></span>
-                            <span class="incident-monitor"><?= e($monitorName) ?></span>
-                            <span class="pill <?= e(status_class((string) $incident['to'])) ?>">
+                        <div class="incident-row<?= $incident['ongoing'] ? ' is-ongoing' : '' ?>">
+                            <span class="incident-monitor"><?= e($incident['monitorName']) ?></span>
+                            <span class="incident-times">
+                                <span class="incident-time-item down">
+                                    <span class="incident-time-label">Caiu</span>
+                                    <span class="incident-time-value"><?= e($incident['downAtLabel']) ?></span>
+                                </span>
+                                <span class="incident-arrow" aria-hidden="true">&rarr;</span>
+                                <span class="incident-time-item <?= $incident['ongoing'] ? 'ongoing' : 'up' ?>">
+                                    <span class="incident-time-label">Voltou</span>
+                                    <span class="incident-time-value"><?= e($incident['upAtLabel']) ?></span>
+                                </span>
+                            </span>
+                            <span class="pill <?= $incident['ongoing'] ? 'status-down' : 'status-up' ?>">
                                 <span class="dot" aria-hidden="true"></span>
-                                <?= e($statusLabels[$incident['to']] ?? ucfirst((string) $incident['to'])) ?>
+                                <?= e($incident['durationLabel']) ?>
                             </span>
                         </div>
                     <?php endforeach; ?>
@@ -373,17 +374,30 @@ $statusLabels = [
 
                         <div class="monitor-card-grid">
                             <?php foreach ($group['monitors'] as $monitor): ?>
-                                <article class="server-card">
+                                <?php $tone = metric_tone((int) $monitor['incidentsSelected'], (int) $monitor['downtimeSelectedSeconds']); ?>
+                                <article class="server-card <?= e(status_class($monitor['status'])) ?>">
                                     <div class="card-head">
-                                        <div class="card-identity">
-                                            <h4><?= e($monitor['name']) ?></h4>
-                                            <time datetime="<?= e($monitor['lastEventLabel']) ?>">Ultima leitura: <?= e($monitor['lastEventLabel']) ?></time>
-                                        </div>
-                                        <span class="pill <?= e(status_class($monitor['status'])) ?>">
+                                        <h4><?= e($monitor['name']) ?></h4>
+                                        <span class="pill sm <?= e(status_class($monitor['status'])) ?>">
                                             <span class="dot" aria-hidden="true"></span>
                                             <?= e($monitor['statusLabel']) ?>
                                         </span>
                                     </div>
+
+                                    <dl class="card-metrics">
+                                        <div>
+                                            <dt>Uptime <?= e($metricSuffix) ?></dt>
+                                            <dd class="<?= e($tone) ?>"><?= e($monitor['uptimeSelected']) ?></dd>
+                                        </div>
+                                        <div>
+                                            <dt>Incidentes</dt>
+                                            <dd class="<?= e($tone) ?>"><?= e($monitor['incidentsSelected']) ?></dd>
+                                        </div>
+                                        <div>
+                                            <dt>Tempo off</dt>
+                                            <dd class="<?= e($tone) ?>"><?= e($monitor['downtimeSelectedLabel']) ?></dd>
+                                        </div>
+                                    </dl>
 
                                     <div class="history-block">
                                         <div class="history-label">Ultimas 24h</div>
@@ -392,39 +406,9 @@ $statusLabels = [
                                                 <span class="history-bar <?= e(status_class($bar['status'])) ?>" data-tooltip="<?= e($bar['title']) ?>" aria-label="<?= e($bar['title']) ?>"></span>
                                             <?php endforeach; ?>
                                         </div>
-                                        <div class="history-axis">
-                                            <span><?= e($monitor['historyHourBars'][0]['label'] ?? '') ?></span>
-                                            <span><?= e($monitor['historyHourBars'][array_key_last($monitor['historyHourBars'])]['label'] ?? '') ?></span>
-                                        </div>
                                     </div>
 
-                                    <div class="history-block">
-                                        <div class="history-label">Ultimos 60 min</div>
-                                        <div class="history-bars history-minutes">
-                                            <?php foreach ($monitor['historyMinuteBars'] as $bar): ?>
-                                                <span class="history-bar <?= e(status_class($bar['status'])) ?>" data-tooltip="<?= e($bar['title']) ?>" aria-label="<?= e($bar['title']) ?>"></span>
-                                            <?php endforeach; ?>
-                                        </div>
-                                        <div class="history-axis">
-                                            <span><?= e($monitor['historyMinuteBars'][0]['label'] ?? '') ?></span>
-                                            <span><?= e($monitor['historyMinuteBars'][array_key_last($monitor['historyMinuteBars'])]['label'] ?? '') ?></span>
-                                        </div>
-                                    </div>
-
-                                    <dl class="card-metrics">
-                                        <div>
-                                            <dt>Uptime <?= e($metricSuffix) ?></dt>
-                                            <dd><?= e($monitor['uptimeSelected']) ?></dd>
-                                        </div>
-                                        <div>
-                                            <dt>Incidentes <?= e($metricSuffix) ?></dt>
-                                            <dd><?= e($monitor['incidentsSelected']) ?></dd>
-                                        </div>
-                                        <div>
-                                            <dt>Tempo off <?= e($metricSuffix) ?></dt>
-                                            <dd><?= e($monitor['downtimeSelectedLabel']) ?></dd>
-                                        </div>
-                                    </dl>
+                                    <time class="card-footline" datetime="<?= e($monitor['lastEventLabel']) ?>">Ultima leitura <?= e($monitor['lastEventLabel']) ?></time>
                                 </article>
                             <?php endforeach; ?>
                         </div>

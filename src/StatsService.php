@@ -41,8 +41,8 @@ final class StatsService
 
         $monitorRows = $this->buildMonitorRows($monitors, $visibleMonitorIds, $currentStatuses, $eventsByMonitor, $selected, $today, $sevenDays, $thirtyDays, $now);
         $monitorGroups = $this->buildMonitorGroups($monitorRows);
-        $recentIncidents = $selected['incidentEvents'];
-        usort($recentIncidents, static fn (array $a, array $b): int => strcmp((string) $b['at'], (string) $a['at']));
+        $monitorNames = array_map(static fn (array $monitor): string => (string) $monitor['name'], $monitors);
+        $recentIncidents = $this->buildIncidentPairs($eventsByMonitor, $visibleMonitorIds, $monitorNames, $selectedRange['start'], $selectedRange['end']);
 
         return [
             'title' => $this->config->publicTitle,
@@ -422,8 +422,7 @@ final class StatsService
      *     incidents: int,
      *     downtimeSeconds: int,
      *     uptimePercent: ?float,
-     *     perMonitor: array<int, array{incidents: int, downtimeSeconds: int, uptimePercent: ?float}>,
-     *     incidentEvents: list<array<string, mixed>>
+     *     perMonitor: array<int, array{incidents: int, downtimeSeconds: int, uptimePercent: ?float}>
      * }
      */
     private function computeRange(array $eventsByMonitor, array $monitorIds, DateTimeImmutable $start, DateTimeImmutable $end): array
@@ -431,7 +430,6 @@ final class StatsService
         $duration = max(0, $end->getTimestamp() - $start->getTimestamp());
         $totalDowntime = 0;
         $totalIncidents = 0;
-        $incidentEvents = [];
         $perMonitor = [];
 
         foreach ($monitorIds as $monitorId) {
@@ -460,13 +458,6 @@ final class StatsService
 
                 if ($state === 'up' && $event['statusKey'] === 'down') {
                     $monitorIncidents++;
-                    $incidentEvents[] = [
-                        'monitorId' => $monitorId,
-                        'at' => $eventAt->format(DateTimeInterface::ATOM),
-                        'atLabel' => $eventAt->format('d/m/Y H:i'),
-                        'from' => $state,
-                        'to' => 'down',
-                    ];
                 }
 
                 $state = $event['statusKey'];
@@ -495,7 +486,79 @@ final class StatsService
             'downtimeSeconds' => $totalDowntime,
             'uptimePercent' => $denominator > 0 ? max(0.0, 100.0 - (($totalDowntime / $denominator) * 100.0)) : null,
             'perMonitor' => $perMonitor,
-            'incidentEvents' => $incidentEvents,
+        ];
+    }
+
+    /**
+     * Builds paired down/up incidents (when a monitor went offline and when it recovered)
+     * for monitors whose outage overlaps the given range.
+     *
+     * @param array<int, list<array{monitor_id: int, status: mixed, statusKey: string, at: DateTimeImmutable}>> $eventsByMonitor
+     * @param list<int> $monitorIds
+     * @param array<int, string> $monitorNames
+     * @return list<array<string, mixed>>
+     */
+    private function buildIncidentPairs(array $eventsByMonitor, array $monitorIds, array $monitorNames, DateTimeImmutable $rangeStart, DateTimeImmutable $rangeEnd): array
+    {
+        $incidents = [];
+
+        foreach ($monitorIds as $monitorId) {
+            $events = $eventsByMonitor[$monitorId] ?? [];
+            $state = 'unknown';
+            $downAt = null;
+
+            foreach ($events as $event) {
+                if ($event['statusKey'] === 'down' && $state !== 'down') {
+                    $downAt = $event['at'];
+                } elseif ($event['statusKey'] !== 'down' && $state === 'down' && $downAt !== null) {
+                    $incidents[] = $this->incidentPayload($monitorId, $monitorNames[$monitorId] ?? ('Monitor #' . $monitorId), $downAt, $event['at']);
+                    $downAt = null;
+                }
+
+                $state = $event['statusKey'];
+            }
+
+            if ($state === 'down' && $downAt !== null) {
+                $incidents[] = $this->incidentPayload($monitorId, $monitorNames[$monitorId] ?? ('Monitor #' . $monitorId), $downAt, null);
+            }
+        }
+
+        $incidents = array_values(array_filter($incidents, static function (array $incident) use ($rangeStart, $rangeEnd): bool {
+            $downAt = $incident['downAtRaw'];
+            $upAt = $incident['upAtRaw'];
+
+            return $downAt <= $rangeEnd && ($upAt === null || $upAt >= $rangeStart);
+        }));
+
+        usort($incidents, static fn (array $a, array $b): int => $b['downAtRaw'] <=> $a['downAtRaw']);
+
+        return array_map(function (array $incident): array {
+            unset($incident['downAtRaw'], $incident['upAtRaw']);
+
+            return $incident;
+        }, $incidents);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function incidentPayload(int $monitorId, string $monitorName, DateTimeImmutable $downAt, ?DateTimeImmutable $upAt): array
+    {
+        $ongoing = $upAt === null;
+        $durationSeconds = $ongoing ? 0 : max(0, $upAt->getTimestamp() - $downAt->getTimestamp());
+
+        return [
+            'monitorId' => $monitorId,
+            'monitorName' => $monitorName,
+            'downAt' => $downAt->format(DateTimeInterface::ATOM),
+            'downAtLabel' => $downAt->format('d/m/Y H:i'),
+            'downAtRaw' => $downAt,
+            'upAt' => $upAt?->format(DateTimeInterface::ATOM),
+            'upAtLabel' => $ongoing ? 'Ainda offline' : $upAt->format('d/m/Y H:i'),
+            'upAtRaw' => $upAt,
+            'ongoing' => $ongoing,
+            'durationSeconds' => $durationSeconds,
+            'durationLabel' => $ongoing ? 'Em andamento' : $this->formatDuration($durationSeconds),
         ];
     }
 
