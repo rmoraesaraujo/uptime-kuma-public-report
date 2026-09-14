@@ -16,9 +16,12 @@ services:
       ADMIN_DATA_PATH: /app/storage
     volumes:
       - /opt/uptime-kuma/data:/kuma-data:ro
-      - ./admin-storage:/app/storage
+      - admin-storage:/app/storage
     read_only: true
     tmpfs:
       - /tmp:size=64m,mode=1777
     security_opt:
       - no-new-privileges:true
+
+volumes:
+  admin-storage:
