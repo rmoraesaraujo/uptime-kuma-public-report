@@ -41,8 +41,8 @@ final class StatsService
 
         $monitorRows = $this->buildMonitorRows($monitors, $visibleMonitorIds, $currentStatuses, $eventsByMonitor, $selected, $today, $sevenDays, $thirtyDays, $now);
         $monitorGroups = $this->buildMonitorGroups($monitorRows);
-        $monitorNames = array_map(static fn (array $monitor): string => (string) $monitor['name'], $monitors);
-        $recentIncidents = $this->buildIncidentPairs($eventsByMonitor, $visibleMonitorIds, $monitorNames, $selectedRange['start'], $selectedRange['end']);
+        $monitorLabels = $this->buildMonitorLabels($monitors);
+        $recentIncidents = $this->buildIncidentPairs($eventsByMonitor, $visibleMonitorIds, $monitorLabels, $selectedRange['start'], $selectedRange['end']);
 
         return [
             'title' => $this->config->publicTitle,
@@ -495,10 +495,10 @@ final class StatsService
      *
      * @param array<int, list<array{monitor_id: int, status: mixed, statusKey: string, at: DateTimeImmutable}>> $eventsByMonitor
      * @param list<int> $monitorIds
-     * @param array<int, string> $monitorNames
+     * @param array<int, string> $monitorLabels
      * @return list<array<string, mixed>>
      */
-    private function buildIncidentPairs(array $eventsByMonitor, array $monitorIds, array $monitorNames, DateTimeImmutable $rangeStart, DateTimeImmutable $rangeEnd): array
+    private function buildIncidentPairs(array $eventsByMonitor, array $monitorIds, array $monitorLabels, DateTimeImmutable $rangeStart, DateTimeImmutable $rangeEnd): array
     {
         $incidents = [];
 
@@ -511,7 +511,7 @@ final class StatsService
                 if ($event['statusKey'] === 'down' && $state !== 'down') {
                     $downAt = $event['at'];
                 } elseif ($event['statusKey'] !== 'down' && $state === 'down' && $downAt !== null) {
-                    $incidents[] = $this->incidentPayload($monitorId, $monitorNames[$monitorId] ?? ('Monitor #' . $monitorId), $downAt, $event['at']);
+                    $incidents[] = $this->incidentPayload($monitorId, $monitorLabels[$monitorId] ?? ('Monitor #' . $monitorId), $downAt, $event['at']);
                     $downAt = null;
                 }
 
@@ -519,7 +519,7 @@ final class StatsService
             }
 
             if ($state === 'down' && $downAt !== null) {
-                $incidents[] = $this->incidentPayload($monitorId, $monitorNames[$monitorId] ?? ('Monitor #' . $monitorId), $downAt, null);
+                $incidents[] = $this->incidentPayload($monitorId, $monitorLabels[$monitorId] ?? ('Monitor #' . $monitorId), $downAt, null);
             }
         }
 
@@ -625,6 +625,7 @@ final class StatsService
                 'downtimeSelectedSeconds' => $selectedMonitor['downtimeSeconds'],
                 'downtimeSelectedLabel' => $this->formatDuration((int) $selectedMonitor['downtimeSeconds']),
                 'uptimeSelected' => $this->formatPercent($selectedMonitor['uptimePercent']),
+                'uptimeSelectedRaw' => $selectedMonitor['uptimePercent'],
                 'historyHourBars' => $this->statusBuckets($eventsByMonitor, $monitorId, $now->modify('-24 hours'), $now, 28),
                 'historyMinuteBars' => $this->statusBuckets($eventsByMonitor, $monitorId, $now->modify('-60 minutes'), $now, 60),
             ];
@@ -744,6 +745,36 @@ final class StatsService
         uasort($groups, static fn (array $a, array $b): int => strcasecmp((string) $a['name'], (string) $b['name']));
 
         return array_values($groups);
+    }
+
+    /**
+     * Builds a display label per monitor combining the parent group's name (the "apelido"
+     * used in Uptime Kuma, e.g. "AURA") with the monitor's own name (e.g. "dns-2"), so
+     * incident rows read as "AURA - dns-2" instead of just the bare domain being checked.
+     *
+     * @param array<int, array{id: int, name: string, active: ?bool, type: ?string, parent: ?int, isGroup: bool}> $monitors
+     * @return array<int, string>
+     */
+    private function buildMonitorLabels(array $monitors): array
+    {
+        $labels = [];
+
+        foreach ($monitors as $id => $monitor) {
+            if ($monitor['isGroup'] ?? false) {
+                $labels[$id] = (string) $monitor['name'];
+                continue;
+            }
+
+            $group = $this->groupForMonitor($monitor, $monitors);
+            $groupName = (string) $group['name'];
+            $monitorName = (string) $monitor['name'];
+
+            $labels[$id] = ($groupName === '' || $groupName === 'Sem grupo' || $groupName === $monitorName)
+                ? $monitorName
+                : $groupName . ' - ' . $monitorName;
+        }
+
+        return $labels;
     }
 
     /**

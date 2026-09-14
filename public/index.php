@@ -8,11 +8,10 @@ require_once __DIR__ . '/../src/SqliteConnectionFactory.php';
 require_once __DIR__ . '/../src/SchemaDetector.php';
 require_once __DIR__ . '/../src/FileCache.php';
 require_once __DIR__ . '/../src/StatsService.php';
-
-function e(mixed $value): string
-{
-    return htmlspecialchars((string) $value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
-}
+require_once __DIR__ . '/../src/ReportBuilder.php';
+require_once __DIR__ . '/../src/AdminStore.php';
+require_once __DIR__ . '/../src/PublicViewFilter.php';
+require_once __DIR__ . '/../src/helpers.php';
 
 function selected(string $current, string $value): string
 {
@@ -56,54 +55,25 @@ function request_path(): string
     return parse_url((string) ($_SERVER['REQUEST_URI'] ?? '/'), PHP_URL_PATH) ?: '/';
 }
 
-function asset_url(string $path): string
-{
-    $file = __DIR__ . $path;
-    $version = is_file($file) ? (string) filemtime($file) : '1';
-
-    return $path . '?v=' . rawurlencode($version);
-}
-
 $config = Config::fromEnvironment();
 date_default_timezone_set($config->appTimezone);
 
+$adminStore = new AdminStore($config->adminDataPath);
+$viewSettings = $adminStore->getSettings();
+
 $allowedPeriods = ['today', '7d', '30d'];
 $allowedStatuses = ['all', 'up', 'down', 'pending', 'maintenance', 'unknown'];
-$requestedPeriod = (string) ($_GET['period'] ?? '7d');
-$requestedStatus = (string) ($_GET['status'] ?? 'all');
+$requestedPeriod = (string) ($_GET['period'] ?? $viewSettings['default_period']);
+$requestedStatus = (string) ($_GET['status'] ?? $viewSettings['default_status']);
 $filters = [
-    'monitor' => trim((string) ($_GET['monitor'] ?? 'all')),
+    'monitor' => trim((string) ($_GET['monitor'] ?? $viewSettings['default_monitor'])),
     'period' => in_array($requestedPeriod, $allowedPeriods, true) ? $requestedPeriod : '7d',
     'status' => in_array($requestedStatus, $allowedStatuses, true) ? $requestedStatus : 'all',
 ];
 
 try {
-    $locator = new DatabaseLocator();
-    $database = $locator->locate($config);
-    $cache = new FileCache($config->cachePath);
-    $cacheKey = implode('|', [
-        'report-v4',
-        $database['path'],
-        $config->appTimezone,
-        $config->dbTimezone,
-        $config->sqliteImmutable ? 'immutable' : 'ro',
-        $filters['monitor'],
-        $filters['period'],
-        $filters['status'],
-    ]);
-
-    $report = $cache->remember($cacheKey, $config->cacheTtl, static function () use ($config, $database, $filters): array {
-        $connectionFactory = new SqliteConnectionFactory();
-        $pdo = $connectionFactory->openReadOnly($database['path'], $config);
-        $schema = (new SchemaDetector())->detect($pdo);
-        $report = (new StatsService($config))->buildReport($pdo, $schema, $filters);
-        $report['meta'] = [
-            'databaseSource' => $database['source'],
-            'cacheTtl' => $config->cacheTtl,
-        ];
-
-        return $report;
-    });
+    $report = (new ReportBuilder($config))->build($filters);
+    $report = (new PublicViewFilter())->apply($report, $adminStore);
 } catch (Throwable $exception) {
     if (request_path() === '/api/stats') {
         http_response_code(503);
@@ -172,6 +142,14 @@ $offlineHref = $offlineGroup === null
     ? '/?monitor=all&period=' . rawurlencode($currentPeriod) . '&status=all'
     : '/?monitor=' . rawurlencode('group:' . $offlineGroup['id']) . '&period=' . rawurlencode($currentPeriod) . '&status=all';
 
+$layoutDensity = in_array($viewSettings['layout_density'] ?? 'comfortable', ['comfortable', 'compact'], true)
+    ? $viewSettings['layout_density']
+    : 'comfortable';
+$accentColor = preg_match('/^#[0-9a-fA-F]{6}$/', (string) ($viewSettings['accent_color'] ?? '')) === 1
+    ? $viewSettings['accent_color']
+    : '#4f8cff';
+$popupEnabled = ($viewSettings['popup_enabled'] ?? '1') === '1';
+$popupDurationMs = max(2000, (int) ($viewSettings['popup_duration_ms'] ?? 6000));
 ?>
 <!doctype html>
 <html lang="pt-BR">
@@ -180,9 +158,16 @@ $offlineHref = $offlineGroup === null
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title><?= e($report['title']) ?></title>
     <meta name="robots" content="index,follow">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">
     <link rel="stylesheet" href="<?= e(asset_url('/assets/styles.css')) ?>">
+    <style>:root { --accent: <?= e($accentColor) ?>; --accent-soft: <?= e($accentColor) ?>24; }</style>
 </head>
-<body>
+<body class="density-<?= e($layoutDensity) ?>"
+    data-popup-enabled="<?= $popupEnabled ? '1' : '0' ?>"
+    data-popup-duration="<?= e($popupDurationMs) ?>"
+    data-stats-url="/api/stats?monitor=<?= e(rawurlencode($currentMonitor)) ?>&period=<?= e($currentPeriod) ?>&status=<?= e($currentStatus) ?>"
+>
     <div class="topbar">
         <div class="wrap topbar-inner">
             <a class="brand" href="/">
@@ -199,6 +184,8 @@ $offlineHref = $offlineGroup === null
             </div>
         </div>
     </div>
+
+    <div class="popup-stack" id="popup-stack" aria-live="polite"></div>
 
     <main class="wrap">
         <div class="stat-grid" aria-label="Resumo dos servidores">
@@ -388,9 +375,9 @@ $offlineHref = $offlineGroup === null
                         <div class="monitor-card-grid">
                             <?php foreach ($group['monitors'] as $monitor): ?>
                                 <?php $tone = metric_tone((int) $monitor['incidentsSelected'], (int) $monitor['downtimeSelectedSeconds']); ?>
-                                <article class="server-card <?= e(status_class($monitor['status'])) ?>">
+                                <article class="server-card <?= e(status_class($monitor['status'])) ?>" data-monitor-id="<?= e($monitor['id']) ?>" data-monitor-name="<?= e($monitor['name']) ?>">
                                     <div class="card-head">
-                                        <h4><?= e($monitor['name']) ?></h4>
+                                        <h4><?= e($monitor['name']) ?><?php if ($monitor['isAggregate'] ?? false): ?> <span class="aggregate-tag" title="Exibindo status agregado de <?= e($monitor['aggregateTotal']) ?> registros">agregado</span><?php endif; ?></h4>
                                         <span class="pill sm <?= e(status_class($monitor['status'])) ?>">
                                             <span class="dot" aria-hidden="true"></span>
                                             <?= e($monitor['statusLabel']) ?>
@@ -433,7 +420,10 @@ $offlineHref = $offlineGroup === null
 
     <footer class="wrap site-footer">
         <span>Monitorado por RB PLAY</span>
-        <span>Cache: <?= e($report['meta']['cacheTtl'] ?? 60) ?>s</span>
+        <span class="footer-right">
+            Cache: <?= e($report['meta']['cacheTtl'] ?? 60) ?>s
+            <a class="admin-link" href="/admin/">Painel administrativo</a>
+        </span>
     </footer>
 
     <script src="<?= e(asset_url('/assets/app.js')) ?>" defer></script>

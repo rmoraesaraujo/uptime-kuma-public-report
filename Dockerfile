@@ -8,12 +8,15 @@ WORKDIR /app
 COPY src ./src
 COPY public ./public
 
+RUN mkdir -p /app/storage && chown -R www-data:www-data /app/storage
+
 ENV DATA_PATH=/kuma-data \
     CACHE_PATH=/tmp/uptime-kuma-public-report-cache \
     CACHE_TTL=60 \
     APP_TIMEZONE=America/Sao_Paulo \
     DB_TIMEZONE=UTC \
-    PUBLIC_TITLE="Relatorio de Incidentes"
+    PUBLIC_TITLE="Relatorio de Incidentes" \
+    ADMIN_DATA_PATH=/app/storage
 
 USER www-data
 

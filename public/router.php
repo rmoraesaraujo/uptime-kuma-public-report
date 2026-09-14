@@ -9,4 +9,9 @@ if ($path !== '/' && is_file($file)) {
     return false;
 }
 
+if ($path === '/admin' || str_starts_with($path, '/admin/')) {
+    require __DIR__ . '/admin/index.php';
+    return;
+}
+
 require __DIR__ . '/index.php';

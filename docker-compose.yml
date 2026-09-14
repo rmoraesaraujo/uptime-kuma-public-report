@@ -13,8 +13,10 @@ services:
       DB_TIMEZONE: UTC
       PUBLIC_TITLE: Relatorio de Incidentes
       SQLITE_IMMUTABLE: "false"
+      ADMIN_DATA_PATH: /app/storage
     volumes:
       - /opt/uptime-kuma/data:/kuma-data:ro
+      - ./admin-storage:/app/storage
     read_only: true
     tmpfs:
       - /tmp:size=64m,mode=1777

@@ -13,6 +13,7 @@ final class Config
         public readonly string $dbTimezone,
         public readonly string $publicTitle,
         public readonly bool $sqliteImmutable,
+        public readonly string $adminDataPath,
     ) {
     }
 
@@ -32,6 +33,7 @@ final class Config
             dbTimezone: self::envString('DB_TIMEZONE', 'UTC'),
             publicTitle: self::envString('PUBLIC_TITLE', 'Relatorio de Incidentes'),
             sqliteImmutable: self::envBool('SQLITE_IMMUTABLE', false),
+            adminDataPath: rtrim(self::envString('ADMIN_DATA_PATH', sys_get_temp_dir() . '/uptime-kuma-public-report-admin'), DIRECTORY_SEPARATOR),
         );
     }
 
