@@ -18,3 +18,15 @@ if (!function_exists('asset_url')) {
         return $path . '?v=' . rawurlencode($version);
     }
 }
+
+if (!function_exists('json_payload')) {
+    /**
+     * Encodes a value as JSON safe to embed inside an HTML attribute (e.g. data-payload="...").
+     */
+    function json_payload(mixed $value): string
+    {
+        $json = json_encode($value, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: '{}';
+
+        return htmlspecialchars($json, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+    }
+}

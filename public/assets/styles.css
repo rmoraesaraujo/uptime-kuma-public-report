@@ -65,6 +65,10 @@ html {
     background: var(--bg);
 }
 
+html.no-scroll {
+    overflow: hidden;
+}
+
 body {
     margin: 0;
     min-height: 100vh;
@@ -769,6 +773,7 @@ select {
     border-left: 3px solid var(--card-line);
     background: var(--surface);
     padding: var(--card-pad) 15px;
+    cursor: pointer;
     transition: background 140ms ease;
 }
 
@@ -780,6 +785,11 @@ select {
 
 .server-card:hover {
     background: var(--surface-hover);
+}
+
+.server-card:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
 }
 
 .card-head {
@@ -842,6 +852,11 @@ select {
 
 .history-hours {
     grid-template-columns: repeat(28, minmax(2px, 1fr));
+    gap: 2px;
+}
+
+.history-days {
+    grid-template-columns: repeat(30, minmax(2px, 1fr));
     gap: 2px;
 }
 
@@ -978,6 +993,276 @@ select {
 }
 
 /* ==========================================================================
+   Monitor detail modal
+   ========================================================================== */
+.modal-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 200;
+    display: grid;
+    place-items: center;
+    background: rgba(4, 6, 12, 0.72);
+    backdrop-filter: blur(3px);
+    padding: 20px;
+}
+
+.modal-overlay[hidden] {
+    display: none;
+}
+
+.modal-card {
+    position: relative;
+    width: min(520px, 100%);
+    max-height: min(640px, calc(100vh - 40px));
+    overflow-y: auto;
+    display: grid;
+    gap: 16px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    background: var(--surface-2);
+    box-shadow: var(--shadow);
+    padding: 24px;
+}
+
+.modal-close {
+    position: absolute;
+    top: 14px;
+    right: 14px;
+    width: 30px;
+    height: 30px;
+    border: 1px solid var(--border);
+    border-radius: 50%;
+    background: var(--surface);
+    color: var(--text-dim);
+    cursor: pointer;
+    font-size: 18px;
+    line-height: 1;
+    transition: border-color 140ms ease, color 140ms ease;
+}
+
+.modal-close:hover {
+    border-color: var(--accent);
+    color: var(--text);
+}
+
+.modal-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding-right: 32px;
+}
+
+.modal-head h3 {
+    margin: 0;
+    color: var(--text);
+    font-size: 18px;
+    font-weight: 800;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.modal-subtitle {
+    margin: -8px 0 0;
+    color: var(--text-faint);
+    font-size: 12.5px;
+}
+
+.modal-periods {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+}
+
+.modal-period {
+    border-radius: var(--radius-sm);
+    background: var(--surface-3);
+    padding: 10px 10px 11px;
+}
+
+.modal-period .modal-period-label {
+    display: block;
+    color: var(--text-faint);
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    margin-bottom: 3px;
+}
+
+.modal-period .modal-period-value {
+    display: block;
+    color: var(--text);
+    font-size: 15px;
+    font-weight: 800;
+}
+
+.modal-period .modal-period-sub {
+    display: block;
+    color: var(--text-faint);
+    font-size: 10.5px;
+    margin-top: 2px;
+}
+
+.modal-section {
+    display: grid;
+    gap: 6px;
+}
+
+.modal-days {
+    height: 26px;
+}
+
+.modal-hours {
+    height: 22px;
+}
+
+.modal-incident-list {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    border-radius: var(--radius-sm);
+    overflow: hidden;
+    background: var(--border-soft);
+}
+
+.modal-incident-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    background: var(--surface);
+    padding: 8px 10px;
+    font-size: 12px;
+}
+
+.modal-incident-row.is-ongoing {
+    background: var(--down-soft);
+}
+
+.modal-incident-times {
+    color: var(--text-dim);
+}
+
+.modal-incident-times strong {
+    color: var(--text);
+    font-weight: 650;
+}
+
+.modal-empty {
+    color: var(--text-faint);
+    font-size: 12.5px;
+    padding: 6px 0;
+}
+
+/* ==========================================================================
+   Full-screen announcement overlay
+   ========================================================================== */
+.announcement-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 500;
+    display: grid;
+    place-items: center;
+    background: rgba(4, 6, 12, 0.92);
+    backdrop-filter: blur(6px);
+    padding: 24px;
+}
+
+.announcement-overlay[hidden] {
+    display: none;
+}
+
+.announcement-card {
+    width: min(560px, 100%);
+    display: grid;
+    gap: 20px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    background: var(--surface-2);
+    box-shadow: var(--shadow);
+    padding: 32px;
+    text-align: center;
+}
+
+.announcement-text {
+    color: var(--text);
+    font-size: 17px;
+    font-weight: 600;
+    line-height: 1.55;
+}
+
+.announcement-actions {
+    display: grid;
+    gap: 12px;
+    justify-items: center;
+}
+
+.announcement-progress {
+    width: 100%;
+    height: 4px;
+    border-radius: 999px;
+    background: var(--surface-3);
+    overflow: hidden;
+}
+
+.announcement-progress span {
+    display: block;
+    height: 100%;
+    width: 100%;
+    background: linear-gradient(90deg, var(--accent), var(--accent-2));
+    transform-origin: left center;
+    transform: scaleX(1);
+}
+
+.announcement-progress span.is-running {
+    transition: transform linear;
+    transform: scaleX(0);
+}
+
+.announcement-skip {
+    cursor: pointer;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--surface);
+    color: var(--text-dim);
+    font-size: 12.5px;
+    font-weight: 650;
+    padding: 8px 18px;
+    transition: border-color 140ms ease, color 140ms ease;
+}
+
+.announcement-skip:hover {
+    border-color: var(--accent);
+    color: var(--text);
+}
+
+/* ==========================================================================
+   WhatsApp floating button
+   ========================================================================== */
+.whatsapp-fab {
+    position: fixed;
+    right: 20px;
+    bottom: 20px;
+    z-index: 150;
+    display: grid;
+    place-items: center;
+    width: 52px;
+    height: 52px;
+    border-radius: 50%;
+    background: #25d366;
+    color: #0a0e16;
+    box-shadow: 0 10px 24px -6px rgba(37, 211, 102, 0.6);
+    text-decoration: none;
+    transition: transform 160ms ease, box-shadow 160ms ease;
+}
+
+.whatsapp-fab:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 14px 30px -6px rgba(37, 211, 102, 0.7);
+}
+
+/* ==========================================================================
    Error page
    ========================================================================== */
 .error-shell {
@@ -1077,6 +1362,29 @@ select {
         left: 16px;
         right: 16px;
         width: auto;
+    }
+
+    .modal-periods {
+        grid-template-columns: 1fr;
+    }
+
+    .modal-card {
+        padding: 20px;
+    }
+
+    .whatsapp-fab {
+        right: 14px;
+        bottom: 14px;
+        width: 48px;
+        height: 48px;
+    }
+
+    .announcement-card {
+        padding: 24px 20px;
+    }
+
+    .announcement-text {
+        font-size: 15px;
     }
 }
 

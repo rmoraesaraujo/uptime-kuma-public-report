@@ -120,8 +120,10 @@ if (request_path() === '/api/stats') {
 }
 
 $summary = $report['summary'];
-$statusText = ((int) ($summary['downGroups'] ?? 0)) > 0 ? 'Instabilidade detectada' : 'Todos os sistemas operacionais';
 $globalStatus = ((int) ($summary['downGroups'] ?? 0)) > 0 ? 'down' : 'up';
+$statusText = $globalStatus === 'down'
+    ? ($viewSettings['text_status_down'] ?? 'Instabilidade detectada')
+    : ($viewSettings['text_status_ok'] ?? 'Todos os sistemas operacionais');
 $currentPeriod = $report['filters']['period'];
 $currentStatus = $report['filters']['status'];
 $currentMonitor = $report['filters']['monitor'];
@@ -150,6 +152,20 @@ $accentColor = preg_match('/^#[0-9a-fA-F]{6}$/', (string) ($viewSettings['accent
     : '#4f8cff';
 $popupEnabled = ($viewSettings['popup_enabled'] ?? '1') === '1';
 $popupDurationMs = max(2000, (int) ($viewSettings['popup_duration_ms'] ?? 6000));
+$incidentsPlacement = ($viewSettings['incidents_placement'] ?? 'global') === 'per_card' ? 'per_card' : 'global';
+$textBrandEyebrow = $viewSettings['text_brand_eyebrow'] ?? 'RB PLAY - Central operacional';
+$textFooter = $viewSettings['text_footer'] ?? 'Monitorado por RB PLAY';
+
+$announcementEnabled = ($viewSettings['announcement_enabled'] ?? '0') === '1' && trim((string) ($viewSettings['announcement_text'] ?? '')) !== '';
+$announcementText = (string) ($viewSettings['announcement_text'] ?? '');
+$announcementDurationMs = max(2000, (int) ($viewSettings['announcement_duration_ms'] ?? 8000));
+$announcementMode = ($viewSettings['announcement_mode'] ?? 'once_per_session') === 'always' ? 'always' : 'once_per_session';
+$announcementVersion = (string) ($viewSettings['announcement_version'] ?? '0');
+
+$whatsappEnabled = ($viewSettings['whatsapp_enabled'] ?? '0') === '1' && trim((string) ($viewSettings['whatsapp_number'] ?? '')) !== '';
+$whatsappNumber = preg_replace('/\D+/', '', (string) ($viewSettings['whatsapp_number'] ?? '')) ?? '';
+$whatsappMessage = (string) ($viewSettings['whatsapp_message'] ?? '');
+$whatsappHref = 'https://wa.me/' . rawurlencode($whatsappNumber) . ($whatsappMessage !== '' ? '?text=' . rawurlencode($whatsappMessage) : '');
 ?>
 <!doctype html>
 <html lang="pt-BR">
@@ -167,11 +183,27 @@ $popupDurationMs = max(2000, (int) ($viewSettings['popup_duration_ms'] ?? 6000))
     data-popup-enabled="<?= $popupEnabled ? '1' : '0' ?>"
     data-popup-duration="<?= e($popupDurationMs) ?>"
     data-stats-url="/api/stats?monitor=<?= e(rawurlencode($currentMonitor)) ?>&period=<?= e($currentPeriod) ?>&status=<?= e($currentStatus) ?>"
+    data-announcement-enabled="<?= $announcementEnabled ? '1' : '0' ?>"
+    data-announcement-duration="<?= e($announcementDurationMs) ?>"
+    data-announcement-mode="<?= e($announcementMode) ?>"
+    data-announcement-version="<?= e($announcementVersion) ?>"
 >
+    <?php if ($announcementEnabled): ?>
+        <div class="announcement-overlay" id="announcement-overlay" role="alertdialog" aria-live="assertive">
+            <div class="announcement-card">
+                <div class="announcement-text"><?= nl2br(e($announcementText), false) ?></div>
+                <div class="announcement-actions">
+                    <div class="announcement-progress"><span id="announcement-progress-bar"></span></div>
+                    <button type="button" class="announcement-skip" id="announcement-skip">Pular</button>
+                </div>
+            </div>
+        </div>
+    <?php endif; ?>
+
     <div class="topbar">
         <div class="wrap topbar-inner">
             <a class="brand" href="/">
-                <span class="brand-eyebrow">RB PLAY &middot; Central operacional</span>
+                <span class="brand-eyebrow"><?= e($textBrandEyebrow) ?></span>
                 <span class="brand-title"><?= e($report['title']) ?></span>
             </a>
             <div class="global-badge <?= e($globalStatus) ?>">
@@ -303,6 +335,7 @@ $popupDurationMs = max(2000, (int) ($viewSettings['popup_duration_ms'] ?? 6000))
             </section>
         <?php endif; ?>
 
+        <?php if ($incidentsPlacement === 'global'): ?>
         <section class="section">
             <div class="section-head">
                 <h2>Incidentes recentes</h2>
@@ -344,6 +377,14 @@ $popupDurationMs = max(2000, (int) ($viewSettings['popup_duration_ms'] ?? 6000))
                 </button>
             <?php endif; ?>
         </section>
+        <?php else: ?>
+        <section class="section">
+            <div class="section-head">
+                <h2>Incidentes</h2>
+                <span class="hint">Clique em um servidor abaixo para ver o historico dele</span>
+            </div>
+        </section>
+        <?php endif; ?>
 
         <section class="section">
             <div class="section-head">
@@ -374,8 +415,29 @@ $popupDurationMs = max(2000, (int) ($viewSettings['popup_duration_ms'] ?? 6000))
 
                         <div class="monitor-card-grid">
                             <?php foreach ($group['monitors'] as $monitor): ?>
-                                <?php $tone = metric_tone((int) $monitor['incidentsSelected'], (int) $monitor['downtimeSelectedSeconds']); ?>
-                                <article class="server-card <?= e(status_class($monitor['status'])) ?>" data-monitor-id="<?= e($monitor['id']) ?>" data-monitor-name="<?= e($monitor['name']) ?>">
+                                <?php
+                                    $tone = metric_tone((int) $monitor['incidentsSelected'], (int) $monitor['downtimeSelectedSeconds']);
+                                    $payload = [
+                                        'name' => $monitor['name'],
+                                        'statusLabel' => $monitor['statusLabel'],
+                                        'cardStatusLabel' => $monitor['cardStatusLabel'],
+                                        'status' => $monitor['status'],
+                                        'isAggregate' => $monitor['isAggregate'] ?? false,
+                                        'periods' => $monitor['periods'] ?? null,
+                                        'historyDayBars' => $monitor['historyDayBars'] ?? [],
+                                        'historyHourBars' => $monitor['historyHourBars'] ?? [],
+                                        'incidents' => $monitor['incidents'] ?? [],
+                                    ];
+                                ?>
+                                <article
+                                    class="server-card <?= e(status_class($monitor['status'])) ?>"
+                                    data-monitor-id="<?= e($monitor['id']) ?>"
+                                    data-monitor-name="<?= e($monitor['name']) ?>"
+                                    data-payload="<?= json_payload($payload) ?>"
+                                    role="button"
+                                    tabindex="0"
+                                    aria-haspopup="dialog"
+                                >
                                     <div class="card-head">
                                         <h4><?= e($monitor['name']) ?><?php if ($monitor['isAggregate'] ?? false): ?> <span class="aggregate-tag" title="Exibindo status agregado de <?= e($monitor['aggregateTotal']) ?> registros">agregado</span><?php endif; ?></h4>
                                         <span class="pill sm <?= e(status_class($monitor['status'])) ?>">
@@ -399,6 +461,17 @@ $popupDurationMs = max(2000, (int) ($viewSettings['popup_duration_ms'] ?? 6000))
                                         </div>
                                     </dl>
 
+                                    <?php if (($monitor['historyDayBars'] ?? []) !== []): ?>
+                                        <div class="history-block">
+                                            <div class="history-label">Ultimos 30 dias</div>
+                                            <div class="history-bars history-days">
+                                                <?php foreach ($monitor['historyDayBars'] as $bar): ?>
+                                                    <span class="history-bar <?= e(status_class($bar['status'])) ?>" data-tooltip="<?= e($bar['title']) ?>" aria-label="<?= e($bar['title']) ?>"></span>
+                                                <?php endforeach; ?>
+                                            </div>
+                                        </div>
+                                    <?php endif; ?>
+
                                     <div class="history-block">
                                         <div class="history-label">Ultimas 24h</div>
                                         <div class="history-bars history-hours">
@@ -419,12 +492,48 @@ $popupDurationMs = max(2000, (int) ($viewSettings['popup_duration_ms'] ?? 6000))
     </main>
 
     <footer class="wrap site-footer">
-        <span>Monitorado por RB PLAY</span>
+        <span><?= e($textFooter) ?></span>
         <span class="footer-right">
             Cache: <?= e($report['meta']['cacheTtl'] ?? 60) ?>s
             <a class="admin-link" href="/admin/">Painel administrativo</a>
         </span>
     </footer>
+
+    <?php if ($whatsappEnabled): ?>
+        <a class="whatsapp-fab" href="<?= e($whatsappHref) ?>" target="_blank" rel="noopener" aria-label="Falar no WhatsApp">
+            <svg viewBox="0 0 32 32" width="26" height="26" aria-hidden="true" fill="currentColor">
+                <path d="M16.03 3C9.4 3 4 8.34 4 14.9c0 2.26.63 4.37 1.72 6.18L4 29l8.2-2.14a12.9 12.9 0 0 0 3.83.58c6.63 0 12.03-5.34 12.03-11.9C28.06 8.34 22.66 3 16.03 3zm0 21.6c-1.24 0-2.46-.24-3.6-.7l-.26-.1-4.87 1.27 1.3-4.72-.17-.27a9.6 9.6 0 0 1-1.5-5.18c0-5.3 4.34-9.6 9.7-9.6 5.36 0 9.7 4.3 9.7 9.6 0 5.3-4.34 9.6-9.7 9.6zm5.32-7.2c-.29-.15-1.72-.84-1.98-.94-.27-.1-.46-.15-.66.15-.2.29-.76.94-.93 1.13-.17.2-.34.22-.63.07-.29-.15-1.22-.45-2.32-1.43-.86-.76-1.44-1.7-1.6-1.99-.17-.29-.02-.44.13-.59.13-.13.29-.34.44-.51.15-.17.2-.29.29-.49.1-.2.05-.37-.02-.51-.07-.15-.66-1.6-.91-2.19-.24-.58-.48-.5-.66-.51h-.56c-.2 0-.51.07-.78.37-.27.29-1.02 1-1.02 2.43 0 1.43 1.04 2.82 1.19 3.01.15.2 2.05 3.13 4.97 4.39.69.3 1.23.48 1.65.61.69.22 1.32.19 1.82.11.55-.08 1.72-.7 1.96-1.38.24-.68.24-1.26.17-1.38-.07-.13-.26-.2-.55-.35z"/>
+            </svg>
+        </a>
+    <?php endif; ?>
+
+    <div class="modal-overlay" id="monitor-modal" hidden role="dialog" aria-modal="true">
+        <div class="modal-card">
+            <button type="button" class="modal-close" id="modal-close" aria-label="Fechar">&times;</button>
+            <div class="modal-head">
+                <h3 id="modal-title"></h3>
+                <span class="pill sm" id="modal-status-pill"><span class="dot" aria-hidden="true"></span><span id="modal-status-label"></span></span>
+            </div>
+            <p class="modal-subtitle" id="modal-subtitle"></p>
+
+            <div class="modal-periods" id="modal-periods"></div>
+
+            <div class="modal-section">
+                <div class="history-label">Ultimos 30 dias</div>
+                <div class="history-bars history-days modal-days" id="modal-day-bars"></div>
+            </div>
+
+            <div class="modal-section">
+                <div class="history-label">Ultimas 24h</div>
+                <div class="history-bars history-hours modal-hours" id="modal-hour-bars"></div>
+            </div>
+
+            <div class="modal-section" id="modal-incidents-section" hidden>
+                <div class="history-label">Incidentes</div>
+                <div class="modal-incident-list" id="modal-incident-list"></div>
+            </div>
+        </div>
+    </div>
 
     <script src="<?= e(asset_url('/assets/app.js')) ?>" defer></script>
 </body>

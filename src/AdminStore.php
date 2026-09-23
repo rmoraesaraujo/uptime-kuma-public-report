@@ -22,6 +22,22 @@ final class AdminStore
         'popup_duration_ms' => '6000',
         'layout_density' => 'comfortable',
         'accent_color' => '#4f8cff',
+        'incidents_placement' => 'global',
+
+        'announcement_enabled' => '0',
+        'announcement_text' => '',
+        'announcement_duration_ms' => '8000',
+        'announcement_mode' => 'once_per_session',
+        'announcement_version' => '0',
+
+        'whatsapp_enabled' => '0',
+        'whatsapp_number' => '',
+        'whatsapp_message' => '',
+
+        'text_brand_eyebrow' => 'RB PLAY - Central operacional',
+        'text_footer' => 'Monitorado por RB PLAY',
+        'text_status_ok' => 'Todos os sistemas operacionais',
+        'text_status_down' => 'Instabilidade detectada',
     ];
 
     public function __construct(private readonly string $directory)

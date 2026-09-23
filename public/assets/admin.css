@@ -76,6 +76,17 @@
     font-size: 13px;
 }
 
+.admin-card textarea {
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border);
+    background: var(--surface-2);
+    color: var(--text);
+    padding: 10px 12px;
+    font-size: 13px;
+    font-family: inherit;
+    resize: vertical;
+}
+
 .admin-card input[type="color"] {
     width: 64px;
     height: 40px;

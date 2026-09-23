@@ -628,6 +628,12 @@ final class StatsService
                 'uptimeSelectedRaw' => $selectedMonitor['uptimePercent'],
                 'historyHourBars' => $this->statusBuckets($eventsByMonitor, $monitorId, $now->modify('-24 hours'), $now, 28),
                 'historyMinuteBars' => $this->statusBuckets($eventsByMonitor, $monitorId, $now->modify('-60 minutes'), $now, 60),
+                'historyDayBars' => $this->dayBuckets($eventsByMonitor, $monitorId, $now, 30),
+                'periods' => [
+                    'today' => $this->periodSummary($today, $monitorId),
+                    '7d' => $this->periodSummary($sevenDays, $monitorId),
+                    '30d' => $this->periodSummary($thirtyDays, $monitorId),
+                ],
             ];
         }
 
@@ -857,16 +863,7 @@ final class StatsService
             }
 
             $computed = $this->computeRange($eventsByMonitor, [$monitorId], $bucketStart, $bucketEnd);
-            $status = 'unknown';
-            if ($computed['uptimePercent'] !== null) {
-                if ($computed['downtimeSeconds'] <= 0) {
-                    $status = 'up';
-                } elseif ($computed['uptimePercent'] <= 0.01) {
-                    $status = 'down';
-                } else {
-                    $status = 'partial';
-                }
-            }
+            $status = $this->rangeStatus($computed);
 
             $bars[] = [
                 'status' => $status,
@@ -876,6 +873,74 @@ final class StatsService
         }
 
         return $bars;
+    }
+
+    /**
+     * Builds one bar per calendar day for the last $days days (classic status-page style
+     * daily timeline), for a single monitor.
+     *
+     * @param array<int, list<array{monitor_id: int, status: mixed, statusKey: string, at: DateTimeImmutable}>> $eventsByMonitor
+     * @return list<array{status: string, label: string, title: string}>
+     */
+    private function dayBuckets(array $eventsByMonitor, int $monitorId, DateTimeImmutable $now, int $days): array
+    {
+        $todayStart = $now->setTime(0, 0, 0);
+        $bars = [];
+
+        for ($offset = $days - 1; $offset >= 0; $offset--) {
+            $dayStart = $todayStart->modify('-' . $offset . ' days');
+            $dayEnd = $offset === 0 ? $now : $dayStart->modify('+1 day');
+
+            $computed = $this->computeRange($eventsByMonitor, [$monitorId], $dayStart, $dayEnd);
+            $status = $this->rangeStatus($computed);
+
+            $bars[] = [
+                'status' => $status,
+                'label' => $dayStart->format('d/m'),
+                'title' => $dayStart->format('d/m/Y') . ' - ' . $this->statusLabel($status)
+                    . ($computed['downtimeSeconds'] > 0 ? ' (' . $this->formatDuration($computed['downtimeSeconds']) . ' indisponivel)' : ''),
+            ];
+        }
+
+        return $bars;
+    }
+
+    /**
+     * @param array{incidents: int, downtimeSeconds: int, uptimePercent: ?float, perMonitor: array<int, array{incidents: int, downtimeSeconds: int, uptimePercent: ?float}>} $rangeResult
+     * @return array{uptime: string, incidents: int, downtimeSeconds: int, downtimeLabel: string}
+     */
+    private function periodSummary(array $rangeResult, int $monitorId): array
+    {
+        $monitor = $rangeResult['perMonitor'][$monitorId] ?? [
+            'incidents' => 0,
+            'downtimeSeconds' => 0,
+            'uptimePercent' => null,
+        ];
+
+        return [
+            'uptime' => $this->formatPercent($monitor['uptimePercent']),
+            'incidents' => $monitor['incidents'],
+            'downtimeSeconds' => $monitor['downtimeSeconds'],
+            'downtimeLabel' => $this->formatDuration((int) $monitor['downtimeSeconds']),
+        ];
+    }
+
+    /**
+     * @param array{incidents: int, downtimeSeconds: int, uptimePercent: ?float} $computed
+     */
+    private function rangeStatus(array $computed): string
+    {
+        if ($computed['uptimePercent'] === null) {
+            return 'unknown';
+        }
+        if ($computed['downtimeSeconds'] <= 0) {
+            return 'up';
+        }
+        if ($computed['uptimePercent'] <= 0.01) {
+            return 'down';
+        }
+
+        return 'partial';
     }
 
     private function monitorInitial(string $name): string

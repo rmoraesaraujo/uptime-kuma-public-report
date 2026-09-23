@@ -20,6 +20,7 @@ final class PublicViewFilter
         $hiddenGroups = array_fill_keys($store->hiddenGroupIds(), true);
         $modes = $store->groupModes();
         $order = $store->groupOrder();
+        $incidentsByMonitor = $this->groupIncidentsByMonitor($report['recentIncidents'] ?? []);
 
         $report['monitors'] = array_values(array_filter(
             $report['monitors'] ?? [],
@@ -50,6 +51,20 @@ final class PublicViewFilter
             if ($monitors === []) {
                 continue;
             }
+
+            $monitors = array_map(function (array $monitor) use ($incidentsByMonitor): array {
+                $monitor['incidents'] = array_slice(array_map(
+                    static fn (array $incident): array => [
+                        'downAtLabel' => $incident['downAtLabel'],
+                        'upAtLabel' => $incident['upAtLabel'],
+                        'ongoing' => $incident['ongoing'],
+                        'durationLabel' => $incident['durationLabel'],
+                    ],
+                    $incidentsByMonitor[(int) $monitor['id']] ?? []
+                ), 0, 10);
+
+                return $monitor;
+            }, $monitors);
 
             $group['monitors'] = $monitors;
             $group['total'] = count($monitors);
@@ -136,6 +151,14 @@ final class PublicViewFilter
             }
         }
 
+        $groupIncidents = [];
+        foreach ($monitors as $monitor) {
+            foreach ($monitor['incidents'] ?? [] as $incident) {
+                $groupIncidents[] = $incident;
+            }
+        }
+        usort($groupIncidents, static fn (array $a, array $b): int => strcmp((string) $b['downAtLabel'], (string) $a['downAtLabel']));
+
         return [
             'id' => 'aggregate-' . $group['id'],
             'name' => $group['name'],
@@ -153,9 +176,83 @@ final class PublicViewFilter
             'uptimeSelected' => $uptimeSelected,
             'lastEventLabel' => $lastEventLabel,
             'historyHourBars' => $this->mergeHistoryBars(array_column($monitors, 'historyHourBars')),
+            'historyDayBars' => $this->mergeHistoryBars(array_column($monitors, 'historyDayBars')),
+            'periods' => $this->mergePeriods(array_column($monitors, 'periods')),
+            'incidents' => array_slice($groupIncidents, 0, 10),
             'isAggregate' => true,
             'aggregateTotal' => $total,
         ];
+    }
+
+    /**
+     * @param list<array<string, array{uptime: string, incidents: int, downtimeSeconds: int, downtimeLabel: string}>> $periodsList
+     * @return array<string, array{uptime: string, incidents: int, downtimeSeconds: int, downtimeLabel: string}>
+     */
+    private function mergePeriods(array $periodsList): array
+    {
+        $merged = [];
+
+        foreach (['today', '7d', '30d'] as $key) {
+            $incidents = 0;
+            $downtimeSeconds = 0;
+
+            foreach ($periodsList as $periods) {
+                $entry = $periods[$key] ?? null;
+                if ($entry === null) {
+                    continue;
+                }
+                $incidents += (int) $entry['incidents'];
+                $downtimeSeconds += (int) $entry['downtimeSeconds'];
+            }
+
+            $merged[$key] = [
+                'uptime' => $this->worstUptimeLabel($periodsList, $key),
+                'incidents' => $incidents,
+                'downtimeSeconds' => $downtimeSeconds,
+                'downtimeLabel' => $this->formatDuration($downtimeSeconds),
+            ];
+        }
+
+        return $merged;
+    }
+
+    /**
+     * @param list<array<string, array{uptime: string}>> $periodsList
+     */
+    private function worstUptimeLabel(array $periodsList, string $key): string
+    {
+        $labels = array_filter(array_map(
+            static fn (array $periods): ?string => $periods[$key]['uptime'] ?? null,
+            $periodsList
+        ), static fn (?string $v): bool => $v !== null && $v !== '--');
+
+        if ($labels === []) {
+            return '--';
+        }
+
+        // Uptime labels are formatted percentages; the lowest numeric value is the worst case.
+        usort($labels, static function (string $a, string $b): int {
+            $numA = (float) str_replace(['%', '.', ','], ['', '', '.'], $a);
+            $numB = (float) str_replace(['%', '.', ','], ['', '', '.'], $b);
+
+            return $numA <=> $numB;
+        });
+
+        return $labels[0];
+    }
+
+    /**
+     * @param list<array<string, mixed>> $incidents
+     * @return array<int, list<array<string, mixed>>>
+     */
+    private function groupIncidentsByMonitor(array $incidents): array
+    {
+        $byMonitor = [];
+        foreach ($incidents as $incident) {
+            $byMonitor[(int) ($incident['monitorId'] ?? 0)][] = $incident;
+        }
+
+        return $byMonitor;
     }
 
     /**

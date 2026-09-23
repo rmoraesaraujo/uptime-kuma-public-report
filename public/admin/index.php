@@ -115,6 +115,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $defaultMonitor = ($requestedMonitor === 'all' || str_starts_with($requestedMonitor, 'group:'))
             ? $requestedMonitor
             : 'all';
+        $incidentsPlacement = ($_POST['incidents_placement'] ?? '') === 'per_card' ? 'per_card' : 'global';
 
         $store->setSettings([
             'default_period' => $period,
@@ -124,8 +125,38 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             'accent_color' => $accent,
             'popup_enabled' => $popupEnabled,
             'popup_duration_ms' => (string) $popupDuration,
+            'incidents_placement' => $incidentsPlacement,
+            'text_brand_eyebrow' => trim((string) ($_POST['text_brand_eyebrow'] ?? '')) ?: 'RB PLAY - Central operacional',
+            'text_footer' => trim((string) ($_POST['text_footer'] ?? '')) ?: 'Monitorado por RB PLAY',
+            'text_status_ok' => trim((string) ($_POST['text_status_ok'] ?? '')) ?: 'Todos os sistemas operacionais',
+            'text_status_down' => trim((string) ($_POST['text_status_down'] ?? '')) ?: 'Instabilidade detectada',
         ]);
         $notice = 'Configuracoes de exibicao salvas.';
+    } elseif ($action === 'save_announcement') {
+        $enabled = ($_POST['announcement_enabled'] ?? '') === '1' ? '1' : '0';
+        $text = trim((string) ($_POST['announcement_text'] ?? ''));
+        $duration = max(2000, min(60000, (int) ($_POST['announcement_duration_ms'] ?? 8000)));
+        $mode = ($_POST['announcement_mode'] ?? '') === 'always' ? 'always' : 'once_per_session';
+
+        $store->setSettings([
+            'announcement_enabled' => $enabled,
+            'announcement_text' => $text,
+            'announcement_duration_ms' => (string) $duration,
+            'announcement_mode' => $mode,
+            'announcement_version' => (string) time(),
+        ]);
+        $notice = 'Aviso em tela cheia atualizado.';
+    } elseif ($action === 'save_whatsapp') {
+        $enabled = ($_POST['whatsapp_enabled'] ?? '') === '1' ? '1' : '0';
+        $number = preg_replace('/\D+/', '', (string) ($_POST['whatsapp_number'] ?? '')) ?? '';
+        $message = trim((string) ($_POST['whatsapp_message'] ?? ''));
+
+        $store->setSettings([
+            'whatsapp_enabled' => $enabled,
+            'whatsapp_number' => $number,
+            'whatsapp_message' => $message,
+        ]);
+        $notice = 'Configuracoes do WhatsApp salvas.';
     } elseif ($action === 'save_password') {
         $current = (string) ($_POST['current_password'] ?? '');
         $new = (string) ($_POST['new_password'] ?? '');
@@ -413,6 +444,7 @@ function render_dashboard(
         <div class="admin-tabs" data-admin-tabs>
             <button type="button" class="admin-tab is-active" data-tab-target="tab-appearance">Aparencia &amp; filtros</button>
             <button type="button" class="admin-tab" data-tab-target="tab-monitors">Monitores &amp; grupos</button>
+            <button type="button" class="admin-tab" data-tab-target="tab-announce">Aviso &amp; WhatsApp</button>
             <button type="button" class="admin-tab" data-tab-target="tab-logs">Logs internos</button>
             <button type="button" class="admin-tab" data-tab-target="tab-account">Conta</button>
         </div>
@@ -480,7 +512,98 @@ function render_dashboard(
                     </label>
                 </div>
 
+                <h2>Onde mostrar os incidentes</h2>
+                <p class="admin-hint">
+                    "Lista global" mantem a secao "Incidentes recentes" no topo da pagina, como hoje. "Dentro de cada
+                    servidor" remove essa lista e o historico passa a aparecer no pop-up que abre ao clicar em cada card.
+                </p>
+                <div class="admin-grid-3">
+                    <label>
+                        <span>Local dos incidentes</span>
+                        <select name="incidents_placement">
+                            <option value="global" <?= $settings['incidents_placement'] === 'global' ? 'selected' : '' ?>>Lista global (como hoje)</option>
+                            <option value="per_card" <?= $settings['incidents_placement'] === 'per_card' ? 'selected' : '' ?>>Dentro de cada servidor (ao clicar)</option>
+                        </select>
+                    </label>
+                </div>
+
+                <h2>Textos da pagina</h2>
+                <div class="admin-grid-3">
+                    <label>
+                        <span>Texto acima do titulo</span>
+                        <input type="text" name="text_brand_eyebrow" value="<?= e($settings['text_brand_eyebrow']) ?>" maxlength="120">
+                    </label>
+                    <label>
+                        <span>Texto do rodape</span>
+                        <input type="text" name="text_footer" value="<?= e($settings['text_footer']) ?>" maxlength="160">
+                    </label>
+                    <label>
+                        <span>Status: tudo operacional</span>
+                        <input type="text" name="text_status_ok" value="<?= e($settings['text_status_ok']) ?>" maxlength="120">
+                    </label>
+                    <label>
+                        <span>Status: instabilidade</span>
+                        <input type="text" name="text_status_down" value="<?= e($settings['text_status_down']) ?>" maxlength="120">
+                    </label>
+                </div>
+
                 <button type="submit" class="admin-primary-btn">Salvar configuracoes</button>
+            </form>
+        </section>
+
+        <section id="tab-announce" class="admin-panel">
+            <form method="post" class="admin-card">
+                <input type="hidden" name="action" value="save_announcement">
+                <input type="hidden" name="csrf" value="<?= e($csrf) ?>">
+                <h2>Aviso em tela cheia</h2>
+                <p class="admin-hint">
+                    Cobre a tela inteira por um tempo definido e some sozinho (o visitante tambem pode clicar em
+                    "Pular"). Se a mensagem mudar, ela volta a aparecer para todo mundo.
+                </p>
+                <label class="admin-checkbox">
+                    <input type="checkbox" name="announcement_enabled" value="1" <?= $settings['announcement_enabled'] === '1' ? 'checked' : '' ?>>
+                    <span>Ativar aviso em tela cheia</span>
+                </label>
+                <label style="margin-top: 12px;">
+                    <span>Mensagem</span>
+                    <textarea name="announcement_text" rows="4" maxlength="600" placeholder="Ex: Manutencao programada hoje as 22h..."><?= e($settings['announcement_text']) ?></textarea>
+                </label>
+                <div class="admin-grid-3">
+                    <label>
+                        <span>Tempo em tela (ms)</span>
+                        <input type="number" name="announcement_duration_ms" min="2000" max="60000" step="500" value="<?= e($settings['announcement_duration_ms']) ?>">
+                    </label>
+                    <label>
+                        <span>Frequencia</span>
+                        <select name="announcement_mode">
+                            <option value="once_per_session" <?= $settings['announcement_mode'] === 'once_per_session' ? 'selected' : '' ?>>Uma vez por visita</option>
+                            <option value="always" <?= $settings['announcement_mode'] === 'always' ? 'selected' : '' ?>>Sempre que a pagina carregar</option>
+                        </select>
+                    </label>
+                </div>
+                <button type="submit" class="admin-primary-btn">Salvar aviso</button>
+            </form>
+
+            <form method="post" class="admin-card">
+                <input type="hidden" name="action" value="save_whatsapp">
+                <input type="hidden" name="csrf" value="<?= e($csrf) ?>">
+                <h2>Botao do WhatsApp</h2>
+                <p class="admin-hint">Mostra um botao flutuante no canto da tela que abre uma conversa no WhatsApp.</p>
+                <label class="admin-checkbox">
+                    <input type="checkbox" name="whatsapp_enabled" value="1" <?= $settings['whatsapp_enabled'] === '1' ? 'checked' : '' ?>>
+                    <span>Ativar botao do WhatsApp</span>
+                </label>
+                <div class="admin-grid-3" style="margin-top: 12px;">
+                    <label>
+                        <span>Numero (com DDI e DDD, so digitos)</span>
+                        <input type="text" name="whatsapp_number" value="<?= e($settings['whatsapp_number']) ?>" placeholder="5511999999999" maxlength="20">
+                    </label>
+                    <label>
+                        <span>Mensagem pre-preenchida (opcional)</span>
+                        <input type="text" name="whatsapp_message" value="<?= e($settings['whatsapp_message']) ?>" maxlength="200">
+                    </label>
+                </div>
+                <button type="submit" class="admin-primary-btn">Salvar WhatsApp</button>
             </form>
         </section>
 
